@@ -38,7 +38,7 @@ when something is wrong. Two formats, same content:
 | ✅ | `osdp_LED` driving the RGB LED; `osdp_BUZ` driving a fitted sounder |
 | ✅ | `osdp_LSTAT` / `ISTAT` / `OSTAT` / `RSTAT` status reporting |
 | ⬜ | **Secure Channel** — see below. Do not deploy without it |
-| ✅ | LCD reader face — colour disc mirroring the LED, address, link state, card panel |
+| ✅ | LCD reader face — link speed, address, Secure Channel state, card panel |
 | ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
 | ✅ | Restart reported to the ACU on the first poll (unsolicited `osdp_LSTATR`) |
 | ✅ | Audible output — an active sounder on GP5, driven by `osdp_BUZ` |
@@ -70,7 +70,7 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | ------ | ------- | - |
 | OSDP PD address | 0 | Must match what the ACU polls (0x00–0x7E) |
 | RS-485 baud rate | 9600 | The spec's mandatory default; must match the ACU |
-| Reader face on the LCD | on | The virtual reader; owns hardware SPI2 when built |
+| Reader face on the LCD | on | The link and card panels; owns hardware SPI2 when built |
 | MFRC522 card reader | on | Turn off for a display-only or bus-only build |
 | How the RC522 is clocked | bit-banged | Software SPI, so the panel keeps SPI2. See below |
 | Audible output | off | An active sounder on GPIO5. Enabling it also makes `osdp_CAP` claim one |
@@ -111,7 +111,7 @@ main.c            three tasks: OSDP service, RC522 polling, LCD repaint
 │                 Hardware SPI2 or bit-banged, chosen at one seam
 ├── tamper.c      the enclosure switch on GP4, debounced
 ├── osdp_reader.c the PD: identity, capabilities, handlers, event queue
-├── display.c     the reader face on the ST7789: LED disc, card panel
+├── display.c     the reader face on the ST7789: link panel, card panel
 └── status_led.c  the WS2812, driven by osdp_LED (or by link state offline)
 
 components/osdp/  wraps the OSDP-Embedded C sources as an IDF component
@@ -160,6 +160,7 @@ static const osdp_sc_crypto_t crypto = {
 osdp_pd_set_sc_crypto(&s_pd, &crypto, NULL);
 osdp_pd_set_sc_scbk(&s_pd, scbk /* 16 bytes from NVS */);
 osdp_pd_set_sc_cuid(&s_pd, cuid, sizeof(cuid));
+s_sc_configured = true;   /* what the LCD reads to stop saying CLEAR TEXT */
 ```
 
 Two things need care beyond the wiring:

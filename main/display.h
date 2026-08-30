@@ -1,10 +1,11 @@
 /* The reader face on the board's 1.47" LCD.
  *
- * This is the virtual reader: a colour disc that mirrors, pixel for pixel,
- * whatever the WS2812 is showing — the ACU's osdp_LED colour while the link
- * is up, the blue breath while it is down — plus the identity and link
- * state a person standing at the door would want to see. It is a display of
- * state that already exists; nothing here originates a reading.
+ * The screen shows what the WS2812 cannot say. The LED already carries the
+ * ACU's osdp_LED colour while the link is up and a blue breath while it is
+ * down, so the panel does not mirror it — it shows the link instead: the
+ * terms this PD is talking on (speed, address, Secure Channel) and the last
+ * card read. It is a display of state that already exists; nothing here
+ * originates a reading.
  *
  * Threading. Every setter below is safe from any task and does no I/O: it
  * copies into a small shared snapshot under a spinlock and returns. A
@@ -26,20 +27,28 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* How this PD is talking to the ACU right now.
+ *
+ * Three states and not a bool, because "this build has no Secure Channel"
+ * and "Secure Channel is configured but no session is up" are different
+ * facts about the same reader, and a person standing at the door with a
+ * laptop needs to tell them apart. The first is a property of the firmware,
+ * the second is usually a key mismatch. */
+typedef enum {
+    DISPLAY_SC_CLEAR = 0,   /* no Secure Channel configured in this build */
+    DISPLAY_SC_NONE,        /* configured, but no session established     */
+    DISPLAY_SC_ACTIVE,      /* SCS_14 done; traffic is wrapped            */
+} display_sc_t;
+
 /* Bring up the panel, light the backlight, paint the first frame and start
- * the repaint task. Call after status_led_init() — the disc reads its
- * colour from there. */
+ * the repaint task. */
 esp_err_t display_init(void);
 
-/* Link state, as the OSDP task sees it. Drives the status pill and, through
- * status_led, the disc. */
+/* Link state, as the OSDP task sees it. Drives the status pill. */
 void display_set_link(bool online);
 
-/* The colour the ACU last commanded, used for the caption under the disc.
- * The disc itself takes its colour from status_led rather than from here,
- * so that what the screen shows and what the WS2812 shows cannot drift
- * apart; this is only the name for it. */
-void display_set_led(uint8_t osdp_color);
+/* Secure Channel state, as the OSDP task sees it. */
+void display_set_secure(display_sc_t state);
 
 /* Whether a card reader is attached at all. False puts the card panel into
  * "NO READER" rather than "NO CARD" — an idle reader and an absent one look

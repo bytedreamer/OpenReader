@@ -19,33 +19,13 @@ static uint8_t  s_osdp_color = OSDP_LED_BLACK;
  * not illumination. */
 #define LED_LEVEL 40U
 
-/* Last colour handed to the strip, kept so the LCD can mirror it. Written
- * only by paint(); each field is a byte, so a reader on another task sees
- * one whole component or the other, never a torn one. A frame rendered
- * across an update shows the previous colour for one more frame, which at
- * 20 fps nobody can see. */
-static volatile uint8_t s_cur_r, s_cur_g, s_cur_b;
-
 static void paint(uint8_t r, uint8_t g, uint8_t b)
 {
-    s_cur_r = r;
-    s_cur_g = g;
-    s_cur_b = b;
     if (s_strip == NULL) {
         return;
     }
     (void)led_strip_set_pixel(s_strip, 0, r, g, b);
     (void)led_strip_refresh(s_strip);
-}
-
-void status_led_current_rgb(uint8_t *r, uint8_t *g, uint8_t *b)
-{
-    /* Scale LED_LEVEL up to 255 rather than normalising each frame to its
-     * own brightest channel: normalising would flatten the offline breath
-     * into a constant blue and turn amber into something close to yellow. */
-    *r = (uint8_t)((s_cur_r * 255U) / LED_LEVEL);
-    *g = (uint8_t)((s_cur_g * 255U) / LED_LEVEL);
-    *b = (uint8_t)((s_cur_b * 255U) / LED_LEVEL);
 }
 
 esp_err_t status_led_init(void)

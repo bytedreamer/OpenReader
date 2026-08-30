@@ -77,6 +77,16 @@ static uint8_t s_tamper = OSDP_LSTATR_NORMAL;
 static bool s_restart_event;    /* restart not yet reported to the ACU      */
 static bool s_restart_queued;   /* an unsolicited osdp_LSTATR is in the queue */
 
+/* Whether this build configured Secure Channel at all.
+ *
+ * osdp_pd_sc_established() answers "is a session up", which cannot on its
+ * own tell a reader with no crypto bound from one whose keys the ACU
+ * disagrees with — and those two want completely different things done about
+ * them. Set this true alongside the osdp_pd_set_sc_* calls in
+ * osdp_reader_init() and the face stops saying CLEAR TEXT and starts saying
+ * whether the handshake completed. */
+static bool s_sc_configured;
+
 /* ---- Identity ----------------------------------------------------------- */
 
 static void build_pdid(osdp_pdid_t *id)
@@ -327,7 +337,6 @@ static void led_handler(void *user, uint8_t reader_no, uint8_t led_no,
         return;
     }
     status_led_set_osdp(color);
-    display_set_led(color);
 }
 
 static void buzzer_handler(void *user, uint8_t reader_no, bool sounding,
@@ -508,7 +517,12 @@ esp_err_t osdp_reader_init(void)
     /* Secure Channel is deliberately not configured yet. Without a bound
      * crypto vtable the PD behaves as a clear-text device and none of the
      * SC code is even reachable — see README.md, "Adding Secure Channel",
-     * for what to add here. Do not deploy this as-is. */
+     * for what to add here. Do not deploy this as-is.
+     *
+     * Written out rather than left to the zero initialiser: this assignment
+     * is the line that moves to true when the osdp_pd_set_sc_* calls land
+     * above it, and it is what the reader face reads. */
+    s_sc_configured = false;
 
     ESP_LOGI(TAG, "PD address 0x%02X, %d baud, clear text (no Secure Channel)",
              (unsigned)CONFIG_OPENREADER_OSDP_ADDRESS,
@@ -644,10 +658,25 @@ static void announce_tamper(void)
 }
 #endif /* CONFIG_OPENREADER_TAMPER */
 
+/* What the reader face should say about Secure Channel.
+ *
+ * osdp_pd_sc_established() is the live answer and s_sc_configured supplies
+ * the context it lacks: with no crypto bound the PD is not failing to
+ * establish a session, it is not trying to, and those are different things
+ * to put in front of whoever is standing at the door. */
+static display_sc_t secure_state(void)
+{
+    if (osdp_pd_sc_established(&s_pd)) {
+        return DISPLAY_SC_ACTIVE;
+    }
+    return s_sc_configured ? DISPLAY_SC_NONE : DISPLAY_SC_CLEAR;
+}
+
 void osdp_reader_run(void)
 {
-    bool     was_online = false;
-    uint32_t last_diag_ms = 0;
+    bool         was_online = false;
+    display_sc_t was_sc     = DISPLAY_SC_CLEAR;
+    uint32_t     last_diag_ms = 0;
 
     for (;;) {
         osdp_pd_tick(&s_pd);
@@ -672,6 +701,16 @@ void osdp_reader_run(void)
                 s_restart_queued = false;
             }
             was_online = online;
+        }
+
+        /* Secure Channel establishes (and is torn down by a session loss)
+         * without producing any edge the block above would see, so it is
+         * tracked on its own. The check is a bool read and a compare; only
+         * an actual change reaches the panel. */
+        display_sc_t sc = secure_state();
+        if (sc != was_sc) {
+            display_set_secure(sc);
+            was_sc = sc;
         }
 
 #if CONFIG_OPENREADER_TAMPER

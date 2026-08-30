@@ -29,15 +29,4 @@ void status_led_set_link(bool online);
  * online. */
 void status_led_tick(void);
 
-/* What the WS2812 is showing right now, scaled up to a full 0..255 range.
- *
- * The strip itself is driven deliberately dim (a reader LED at a door is a
- * status indicator, not a lamp), which is the wrong brightness for a screen
- * standing in for it. The scaling is proportional, so the amber mix and the
- * offline breath's ramp both survive it — the display shows the same colour
- * at the same relative intensity, just legibly.
- *
- * Reads a value the LED task last wrote; safe from any task. */
-void status_led_current_rgb(uint8_t *r, uint8_t *g, uint8_t *b);
-
 #endif /* STATUS_LED_H */
