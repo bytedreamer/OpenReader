@@ -183,7 +183,11 @@ static const char *cmd_name(uint8_t code)
     case OSDP_CMD_PIVDATA:      return "osdp_PIVDATA";
     case OSDP_CMD_GENAUTH:      return "osdp_GENAUTH";
     case OSDP_CMD_CRAUTH:       return "osdp_CRAUTH";
+#ifdef OSDP_CMD_PAIR
+    /* Only on library branches that carry the pairing work. Guarded so
+     * this file builds against either. */
     case OSDP_CMD_PAIR:         return "osdp_PAIR";
+#endif
     default:                    return "unknown";
     }
 }
