@@ -3,6 +3,7 @@
 #include "status_led.h"
 #include "display.h"
 #include "buzzer.h"
+#include "tamper.h"
 
 #include "osdp/osdp_pd.h"
 #include "osdp/osdp_commands.h"
@@ -45,10 +46,12 @@ static uint8_t s_event_queue[256];
 static osdp_pd_t   s_pd;
 static QueueHandle_t s_card_queue;
 
-/* Tamper has no hardware behind it on a bare dev board — there is no switch
- * to read — so it answers "normal", which is at least honest and better than
- * NAKing osdp_LSTAT. A production enclosure should drive this from a real
- * switch. */
+/* The tamper byte the ACU sees, in the spec's own encoding.
+ *
+ * Backed by a real switch when one is built — tamper.c drives this from the
+ * OSDP loop below. Without CONFIG_OPENREADER_TAMPER there is no switch to
+ * read and it stays at "normal", which is what a bare dev board can honestly
+ * say and better than NAKing osdp_LSTAT. */
 static uint8_t s_tamper = OSDP_LSTATR_NORMAL;
 
 /* Power used to report a hard-coded "normal" forever, so a PD that had just
@@ -602,6 +605,45 @@ static void announce_restart(void)
     ESP_LOGI(TAG, "queued unsolicited osdp_LSTATR reporting the restart");
 }
 
+#if CONFIG_OPENREADER_TAMPER
+/* Report a tamper transition without waiting to be asked.
+ *
+ * Same reasoning as announce_restart(): osdp_LSTATR is a legal answer to an
+ * osdp_POLL, so the change reaches the ACU on the very next poll instead of
+ * whenever it next happens to send an osdp_LSTAT. A tamper the head end
+ * learns about several minutes late is not much of a tamper.
+ *
+ * Unlike the restart latch this is not retried if the queue is full or the
+ * link is down, and it does not need to be. The restart latch exists because
+ * a restart is an *event* that leaves no trace once missed; tamper is a
+ * *state*. s_tamper still holds it, status_local() still reports it, and the
+ * ACU's next osdp_LSTAT gets the truth. Missing the unsolicited report costs
+ * latency, not correctness. */
+static void announce_tamper(void)
+{
+    const osdp_lstatr_t st = {
+        .tamper = s_tamper,
+        .power  = s_restart_event ? OSDP_LSTATR_POWER_FAILURE
+                                  : OSDP_LSTATR_NORMAL,
+    };
+    uint8_t body[OSDP_LSTATR_PAYLOAD_BYTES];
+    size_t  written = 0;
+
+    if (osdp_lstatr_build(&st, body, sizeof(body), &written) != OSDP_OK) {
+        ESP_LOGE(TAG, "could not build the tamper osdp_LSTATR");
+        return;
+    }
+    if (osdp_pd_enqueue_event(&s_pd, OSDP_REPLY_LSTATR, body,
+                              written) != OSDP_OK) {
+        ESP_LOGW(TAG, "event queue full; tamper change not reported until "
+                      "the next osdp_LSTAT");
+        return;
+    }
+    ESP_LOGI(TAG, "queued unsolicited osdp_LSTATR reporting %s",
+             s_tamper == OSDP_LSTATR_TAMPER ? "tamper" : "tamper cleared");
+}
+#endif /* CONFIG_OPENREADER_TAMPER */
+
 void osdp_reader_run(void)
 {
     bool     was_online = false;
@@ -631,6 +673,20 @@ void osdp_reader_run(void)
             }
             was_online = online;
         }
+
+#if CONFIG_OPENREADER_TAMPER
+        /* Every tick, but the filter in tamper_poll() means this returns
+         * true only on an actual debounced transition. The state is recorded
+         * whether or not the link is up — status_local() answers with it
+         * either way; only the unsolicited report needs somewhere to go. */
+        if (tamper_poll()) {
+            s_tamper = tamper_active() ? OSDP_LSTATR_TAMPER
+                                       : OSDP_LSTATR_NORMAL;
+            if (online) {
+                announce_tamper();
+            }
+        }
+#endif
 
         /* The queue draining is the only evidence we get that the report
          * actually went out; there is no per-event transmit hook. Ours is

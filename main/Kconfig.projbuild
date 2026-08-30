@@ -70,7 +70,7 @@ menu "OpenReader"
     endchoice
 
     config OPENREADER_BUZZER
-        bool "Audible output — active sounder on GPIO18"
+        bool "Audible output — active sounder on GPIO5"
         default n
         help
             Drives an active buzzer from osdp_BUZ. "Active" means the part
@@ -92,6 +92,43 @@ menu "OpenReader"
             Cheap three-pin modules disagree about polarity. If yours
             shrieks from boot and goes quiet only when the ACU commands a
             beep, it is active low — set this.
+
+    config OPENREADER_TAMPER
+        bool "Enclosure tamper switch on GPIO4"
+        default n
+        help
+            Reads a tamper switch and reports it to the ACU in the tamper
+            byte of osdp_LSTATR — both when the ACU asks with osdp_LSTAT and
+            unsolicited, on the next poll after the switch changes.
+
+            Wire a normally-closed switch between GPIO4 and ground. The
+            internal pull-up supplies the other level, so the lid holds the
+            pin low and opening it reads high — and so does a cut wire, which
+            is the point: sabotaging the loop reports tamper rather than
+            silence.
+
+            GPIO4 is the microSD slot's chip select on this carrier, so this
+            gives the card slot up. Nothing in the firmware uses it. GPIO4 is
+            also an SDIO clock-edge strapping pin, which is harmless here
+            because this firmware never uses SDIO — see board.h.
+
+            Default off. Unlike the buzzer this claims no capability the ACU
+            could act on, so leaving it on with no switch fitted is not a lie
+            to the head end — but the pull-up would read an unconnected pin
+            as a permanent tamper, which is worse than useless.
+
+    config OPENREADER_TAMPER_ACTIVE_LOW
+        bool "The switch closes to ground when TAMPERED"
+        depends on OPENREADER_TAMPER
+        default n
+        help
+            For a normally-open switch that closes when the enclosure is
+            opened. Set this if the reader reports tamper with the lid shut
+            and normal with it open.
+
+            Prefer a normally-closed switch if you have the choice. A
+            normally-open one cannot tell a quiet, intact loop apart from a
+            cut one, so snipping the wire defeats it silently.
 
     config OPENREADER_RS485_TX_GPIO
         int "RS-485 UART TX GPIO (to the transceiver's RXD)"

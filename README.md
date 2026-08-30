@@ -35,14 +35,14 @@ when something is wrong. Two formats, same content:
 | ✅ | PD state machine on RS-485: polls, sequencing, online/offline tracking |
 | ✅ | `osdp_ID` / `osdp_CAP` identity and capability reporting |
 | ✅ | Card reads reported as `osdp_RAW` on the next poll |
-| ✅ | `osdp_LED` driving the RGB LED; `osdp_BUZ` decoded (no sounder fitted) |
+| ✅ | `osdp_LED` driving the RGB LED; `osdp_BUZ` driving a fitted sounder |
 | ✅ | `osdp_LSTAT` / `ISTAT` / `OSTAT` / `RSTAT` status reporting |
 | ⬜ | **Secure Channel** — see below. Do not deploy without it |
 | ✅ | LCD reader face — colour disc mirroring the LED, address, link state, card panel |
 | ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
 | ✅ | Restart reported to the ACU on the first poll (unsolicited `osdp_LSTATR`) |
-| ⬜ | Audible output — `osdp_BUZ` is decoded and its pattern resolved; only the sounder is missing |
-| ⬜ | Tamper switch input |
+| ✅ | Audible output — an active sounder on GP5, driven by `osdp_BUZ` |
+| ✅ | Tamper switch input on GP4 — reported in `osdp_LSTATR`, unsolicited on change |
 
 ## Building
 
@@ -73,7 +73,8 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | Reader face on the LCD | on | The virtual reader; owns hardware SPI2 when built |
 | MFRC522 card reader | on | Turn off for a display-only or bus-only build |
 | How the RC522 is clocked | bit-banged | Software SPI, so the panel keeps SPI2. See below |
-| Audible output | off | An active sounder on GPIO18. Enabling it also makes `osdp_CAP` claim one |
+| Audible output | off | An active sounder on GPIO5. Enabling it also makes `osdp_CAP` claim one |
+| Enclosure tamper switch | off | A switch on GPIO4. Leave off until one is wired — an open pin reads as tamper |
 | Discard local echo | off | Only enable if your transceiver echoes — [HARDWARE.md §8.3](docs/HARDWARE.md) |
 | Card repeat window | 2000 ms | Suppresses re-reads of a card left on the antenna |
 | PD serial number | 1 | Give each unit on a bus a distinct value |
@@ -108,6 +109,7 @@ main.c            three tasks: OSDP service, RC522 polling, LCD repaint
 ├── rs485.c       UART1 + MAX13487 → the PD's read/write/now_ms transport
 ├── rc522.c       MFRC522 driver: REQA, anticollision, SELECT, UID.
 │                 Hardware SPI2 or bit-banged, chosen at one seam
+├── tamper.c      the enclosure switch on GP4, debounced
 ├── osdp_reader.c the PD: identity, capabilities, handlers, event queue
 ├── display.c     the reader face on the ST7789: LED disc, card panel
 └── status_led.c  the WS2812, driven by osdp_LED (or by link state offline)

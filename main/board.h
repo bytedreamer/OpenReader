@@ -58,6 +58,10 @@
 #define BOARD_LCD_DC        15
 #define BOARD_LCD_RST       21
 #define BOARD_LCD_BL        22
+/* The microSD slot's chip select and data-out. Listed because they are
+ * what the carrier wires here, not because we use them: GPIO4 is the tamper
+ * input below and GPIO5 the sounder, which means this build gives the SD
+ * slot up. Nothing in the firmware has ever touched it. */
 #define BOARD_SD_CS         4
 
 /* The LCD's own SPI clock and data. Board-internal — neither reaches the
@@ -106,14 +110,39 @@
  * driver polls anyway, so nothing is lost. */
 #define BOARD_RC522_IRQ     (-1)
 
-/* Audible output — an active sounder, one pin.
+/* Audible output — an active sounder, one pin. And the enclosure tamper
+ * switch, one more.
  *
- * GPIO18 is the last genuinely free pin on this header. Everything else is
- * spoken for: GP0/GP1 the RS-485 pair, GP2/3/19/20/23 the RC522, GP4 the SD
- * chip select, GP5 and GP9 strapping pins, GP12/13 the USB data lines, and
- * GP16/17 the debug console. If you need this pin for something else, the
- * console on GP16/17 is the only other candidate worth giving up. */
-#define BOARD_BUZZER        18
+ * Both live on pins the microSD slot would otherwise have. That is a
+ * deliberate trade: the RC522 needs five pins for SPI and the RS-485 pair
+ * needs two, which between them take GP0/GP1 and GP2/3/19/20/23 and leave
+ * almost nothing. Giving up a card slot the firmware has never used buys
+ * back two pins and leaves GP18 spare as well.
+ *
+ * The header now reads: GP0/GP1 RS-485, GP2/3/19/20/23 the RC522, GP4
+ * tamper, GP5 the sounder, GP12/13 the USB data lines, GP16/17 the debug
+ * console, and GP18 free.
+ *
+ * ---- On GPIO4 and GPIO5 being strapping pins ----
+ *
+ * They are, and it does not matter here, which is worth stating plainly
+ * because the opposite rule is the usual one. The ESP32-C6's five strapping
+ * pins do not all carry the same weight:
+ *
+ *   GPIO8, GPIO9  boot mode. Genuinely dangerous — a switch holding GPIO9
+ *                 low across reset drops the board into download mode every
+ *                 time the enclosure is opened.
+ *   GPIO15        JTAG signal source, and ROM message printing.
+ *   GPIO4, GPIO5  SDIO sampling and driving clock edges (C6 datasheet,
+ *                 "Strapping Pins"). Both float by default with no internal
+ *                 pull resistor.
+ *
+ * This firmware never uses SDIO — the carrier's card slot is wired for SPI
+ * and is unused regardless — so whatever level a switch or a sounder module
+ * holds these at during reset selects a clock edge that nothing ever reads.
+ * The guard below rejects 8, 9 and 15 and permits these two. */
+#define BOARD_BUZZER        5
+#define BOARD_TAMPER        4
 
 /* ---- Who owns hardware SPI2 --------------------------------------------
  *
@@ -164,6 +193,45 @@
  || BOARD_PIN_IS_USB(BOARD_RC522_MISO) || BOARD_PIN_IS_USB(BOARD_RC522_CS)   \
  || BOARD_PIN_IS_USB(BOARD_RC522_RST)
 #error "RC522 pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
+#endif
+#endif
+
+#if CONFIG_OPENREADER_TAMPER
+#if BOARD_PIN_IS_USB(BOARD_TAMPER)
+#error "Tamper pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
+#endif
+/* Only the strapping pins that actually matter. A tamper switch holds one
+ * level for the life of the install, so on GPIO8/9 the enclosure lid would
+ * be selecting a boot mode and on GPIO15 the JTAG source. GPIO4 and GPIO5
+ * strap SDIO clock edges, which nothing here reads - see the note above
+ * BOARD_BUZZER. */
+#if BOARD_TAMPER == 8 || BOARD_TAMPER == 9 || BOARD_TAMPER == 15
+#error "Tamper GPIO is a boot-mode or JTAG strapping pin (8/9/15) - the enclosure lid would select a boot mode"
+#endif
+#if BOARD_TAMPER == BOARD_RS485_TX || BOARD_TAMPER == BOARD_RS485_RX
+#error "Tamper GPIO collides with an RS-485 pin"
+#endif
+#if BOARD_TAMPER == BOARD_RGB_LED
+#error "Tamper GPIO collides with the onboard WS2812"
+#endif
+#if CONFIG_OPENREADER_BUZZER
+#if BOARD_TAMPER == BOARD_BUZZER
+#error "Tamper GPIO collides with the sounder pin"
+#endif
+#endif
+#if CONFIG_OPENREADER_RC522
+#if BOARD_TAMPER == BOARD_RC522_SCLK || BOARD_TAMPER == BOARD_RC522_MOSI \
+ || BOARD_TAMPER == BOARD_RC522_MISO || BOARD_TAMPER == BOARD_RC522_CS   \
+ || BOARD_TAMPER == BOARD_RC522_RST
+#error "Tamper GPIO collides with an RC522 pin"
+#endif
+#endif
+#if CONFIG_OPENREADER_DISPLAY
+#if BOARD_TAMPER == BOARD_LCD_SCLK || BOARD_TAMPER == BOARD_LCD_MOSI \
+ || BOARD_TAMPER == BOARD_LCD_CS   || BOARD_TAMPER == BOARD_LCD_DC   \
+ || BOARD_TAMPER == BOARD_LCD_RST  || BOARD_TAMPER == BOARD_LCD_BL
+#error "Tamper GPIO collides with an onboard LCD pin"
+#endif
 #endif
 #endif
 

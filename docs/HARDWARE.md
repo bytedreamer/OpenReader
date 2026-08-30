@@ -49,7 +49,8 @@ comparatively simple device to build.
 | 5 | **120 Ω resistor**, ¼ W | RS-485 bus termination, if your reader is at the physical end of the bus. | — |
 | 6 | Jumper wires (female–female), or perfboard and wire | Bench wiring. | $3 |
 | 7 | USB-C cable | Power, flashing and the serial console, all on the one cable. | — |
-| 8 | **Active buzzer module**, 3.3 V, three-pin *(optional)* | Gives the reader a voice for `osdp_BUZ`. “Active” means it makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM. A bare passive piezo also works but wants a driven waveform. | $2 |
+| 8 | **[Active buzzer module](https://www.amazon.com/Buzzer-Module-Arduino-ESP8266-Raspberry/dp/B0DYDJMP16/)**, 3.3 V, three-pin *(optional)* | Gives the reader a voice for `osdp_BUZ`. **“Active” is the part that matters** — it makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM. A passive buzzer will click once and go quiet, because the firmware drives a static level rather than a waveform. | $2 |
+| 9 | **Normally-closed tamper switch** *(optional)* | A plunger or lever microswitch the enclosure lid holds shut. Normally-closed matters — see §5.3. Only useful once the reader is in a box. | $2 |
 
 For a permanent install you will also want shielded twisted-pair cable
 (22–24 AWG, e.g. Belden 3105A or equivalent) and a 12 V supply with a buck
@@ -236,8 +237,23 @@ GPIO number, so the label on the board *is* the GPIO.
 | `GP1` | **RS-485 RX** | `GP23` | **RC522 SDA/CS** |
 | `GP2` | **RC522 SCK** | `GP20` | **RC522 RST** |
 | `GP3` | **RC522 MOSI** | `GP19` | **RC522 MISO** |
-| `GP4` | SD card CS | `GP18` | free |
-| `GP5` | strapping pin | `GP9` | BOOT strap |
+| `GP4` | **Tamper switch** *(opt.)* | `GP18` | free |
+| `GP5` | **Buzzer** *(opt.)* | `GP9` | BOOT strap |
+
+`GP4` and `GP5` are the microSD slot's chip select and data-out on this
+carrier, so using them for the tamper switch and the sounder gives the card
+slot up. Nothing in the firmware has ever used it, and the alternative was
+having nowhere to put either part: the RC522 needs five pins and the RS-485
+pair needs two, which between them account for everything else. `GP18` is
+left free as a result.
+
+They are also strapping pins, which is usually a reason to avoid them and
+here is not. The ESP32-C6's five strapping pins do not carry equal weight:
+`GP8`/`GP9` set the boot mode and `GP15` the JTAG source, but **`GP4` and
+`GP5` select SDIO sampling and driving clock edges** — and this firmware
+never uses SDIO. Whatever level a switch or a sounder holds them at during
+reset picks a clock edge nothing reads. Both float by default with no
+internal pull resistor. The build still rejects a tamper pin on 8, 9 or 15.
 
 Note `GP23`, `GP20` and `GP19` are three consecutive pins on the right
 column, and the RC522 uses all three. A one-position slip there puts CS on
@@ -307,18 +323,19 @@ above works without it.
 | ---------- | ------------- | ---- |
 | `VCC` / `+` | 3.3 V | A 3.3 V part. Some modules are 5 V — check yours |
 | `GND` / `-` | GND | |
-| `I/O` / `S` | GPIO18 (header `GP18`) | The last free pin on the header |
+| `I/O` / `S` | GPIO5 (header `GP5`) | |
 
-GPIO18 is genuinely the last one going spare. GP0/GP1 are the RS-485 pair,
-GP2/3/19/20/23 the RC522, GP4 the SD chip select, GP5 and GP9 are strapping
-pins, GP12/13 are the USB data lines, and GP16/17 are the debug console. If
-you need GP18 for something else, that console is the only other candidate
-worth giving up.
+**Make sure it is an *active* buzzer.** The firmware drives GPIO5 to a
+static high or low and never generates a waveform, so an active module —
+one with its own oscillator — beeps, and a passive one gives you a single
+click and then silence. Listings are often ambiguous or sell mixed packs.
+The test takes a second: put 3.3 V straight across the buzzer, and a
+continuous tone means active.
 
 Then turn it on — it is off by default:
 
 ```
-idf.py menuconfig    # OpenReader → Audible output — active sounder on GPIO18
+idf.py menuconfig    # OpenReader → Audible output — active sounder on GPIO5
 ```
 
 Off is the honest default rather than a cautious one. Enabling it also makes
@@ -339,13 +356,43 @@ silenced whenever the OSDP link drops, because `osdp_BUZ` can command a
 continuous pattern and a reader that lost comms mid-beep would otherwise
 sound until someone unplugged it.
 
+### Enclosure tamper switch (optional)
+
+Only worth wiring once the reader is in a box. Everything else works without
+it, and the option is **off by default** — with it on and no switch fitted,
+the input's pull-up reads the floating pin as a permanent tamper.
+
+| Switch | ESP32-C6 GPIO | Note |
+| ------ | ------------- | ---- |
+| One leg | GPIO4 (header `GP4`) | |
+| Other leg | GND | No resistor — the internal pull-up supplies the high level |
+
+**Use a normally-closed switch** — one the enclosure lid holds *shut*. The
+lid then holds `GP4` low, opening the lid releases it high, and so does a
+cut, corroded or disconnected wire. Sabotage reads as tamper. A normally-open
+switch cannot tell an intact quiet loop from a snipped one, so anyone with
+wire cutters defeats it silently. If yours is normally-open anyway, there is
+an option for it:
+
+```
+idf.py menuconfig    # OpenReader → Enclosure tamper switch on GPIO4
+                     #            → The switch closes to ground when TAMPERED
+```
+
+You do not need to write any reporting logic. The switch is debounced over
+50 ms and its state goes into the tamper byte of `osdp_LSTATR`, both when the
+ACU asks with `osdp_LSTAT` and unsolicited on the next poll after a change.
+The 50 ms is not about contact bounce, which settles far faster — it stops a
+marginal switch, or a door that shakes in its frame, from turning into a
+stream of status reports at the head end.
+
 ### Already on the board — nothing to wire
 
 | Function | GPIO |
 | -------- | ---- |
 | LCD MOSI / SCLK | 6 / 7 |
 | LCD CS / DC / RST / backlight | 14 / 15 / 21 / 22 |
-| microSD CS / MISO | 4 / 5 |
+| microSD CS / MISO | 4 / 5 — *reused for tamper and the sounder, see §5* |
 | WS2812 RGB LED | 8 |
 
 The LCD is the reason the pin map is shaped the way it is. GPIO6 and GPIO7
@@ -450,6 +497,29 @@ If the UID reads but only intermittently, the antenna is marginal — usually
 long jumper wires to the RC522, or the module lying against something
 metallic.
 
+### 8.2b The tamper switch, if you fitted one
+
+Only if you enabled it in `menuconfig`. At boot:
+
+```
+I (107) tamper: tamper input on GPIO4, currently normal
+```
+
+Open the enclosure — or just lift the switch wire off `GP4` — and within a
+tick you should see:
+
+```
+W (9120) tamper: enclosure TAMPERED
+I (9120) osdp: queued unsolicited osdp_LSTATR reporting tamper
+```
+
+`currently TAMPER` at boot with the lid shut means the polarity is inverted
+for your switch; see §5.3. Reporting tamper with nothing connected to `GP4`
+is the option being on with no switch fitted — the pull-up is reading an open
+pin, exactly as documented. And if it reports `normal` but never changes,
+check the switch really is on `GP4`: a pin held low by something else looks
+identical until you try to trip it.
+
 ### 8.3 Does your transceiver echo?
 
 The MAX13487 handles direction automatically. Some auto-direction
@@ -518,6 +588,9 @@ logs the read as it hands it to the OSDP task.
 | ESP32-C6 resets when the bus is connected | The 5 V TXD reached a GPIO — check §4. The pin may already be damaged |
 | Reads work, but the panel never sees the card | The PD went offline between the read and the next poll; queued credentials are discarded on a comms loss by design (spec 7.11/7.12) |
 | Nothing at all after wiring the divider | Divider fitted to the wrong pin — it belongs on TXD (transceiver → MCU), never on RXD |
+| Tamper reported permanently, nothing wired to `GP4` | The tamper option is enabled with no switch fitted; the pull-up reads the open pin as tamper |
+| Tamper inverted — normal when open, tamper when shut | Normally-open switch; set the active-low option (§5.3) |
+| Buzzer clicks once and goes silent | It is a passive buzzer. The firmware drives a static level, not a waveform — you need an active one (§5.2) |
 
 ---
 
@@ -529,10 +602,10 @@ credential. The firmware is one crypto binding away from SC1 (AES-128) — see
 the README's "Adding Secure Channel". Do this before you trust it with a
 door.
 
-**Enclosure and tamper.** The status provider in `osdp_reader.c` reports
-tamper as permanently normal because a bare dev board has no tamper switch.
-A reader in a wall box should have one, wired to a spare GPIO and driving
-`s_tamper`. The ACU asks; give it a true answer.
+**Enclosure and tamper.** Supported — a switch on `GP4`, §5 — but off by
+default and unwired on a bench build, in which case the reader still answers
+"normal" to every `osdp_LSTAT`. A reader in a wall box should have the switch
+fitted and the option turned on. The ACU asks; give it a true answer.
 
 **The credential itself.** A MIFARE Classic UID is not a secret — it is
 readable by anyone with a phone and clonable with commodity hardware. This
@@ -548,4 +621,9 @@ or a mobile credential), not a change to this firmware.
 
 - [Waveshare ESP32-C6-LCD-1.47 documentation](https://docs.waveshare.com/ESP32-C6-LCD-1.47)
 - [DSD TECH SH-U12 product page](https://www.deshide.com/product-details_SH-U12.html)
+- [Active buzzer module](https://www.amazon.com/Buzzer-Module-Arduino-ESP8266-Raspberry/dp/B0DYDJMP16/) — the three-pin sounder in the BOM
+- [How RFID works, and the RC522 module](https://lastminuteengineers.com/how-rfid-works-rc522-arduino-tutorial/)
+  - background on 13.56 MHz RFID, the MFRC522 module's pinout and the
+  MIFARE Classic 1K memory layout. Its wiring section is Arduino hardware
+  SPI on an Uno, not this board's pin map; use the table in section 5.
 - [OSDP-Embedded PD integration guide](https://github.com/Z-bit-Systems-LLC) — `docs/PD_GUIDE.md` in the library checkout

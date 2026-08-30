@@ -876,7 +876,12 @@ pre code { background: none; padding: 0; font-size: inherit; }
 
       <h3>Audible output — active buzzer (optional)</h3>
 
-      <p>Only worth wiring if you want the reader to answer <code>osdp_BUZ</code>. Everything above works without it. “Active” means the module makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM.</p>
+      <p>Only worth wiring if you want the reader to answer <code>osdp_BUZ</code>. Everything above works without it. A <a href="https://www.amazon.com/Buzzer-Module-Arduino-ESP8266-Raspberry/dp/B0DYDJMP16/">three-pin active buzzer module</a> is the part.</p>
+
+      <div class="callout">
+        <span class="label">It must be an <em>active</em> buzzer</span>
+        <p>The firmware drives the pin to a static high or low and never generates a waveform. An active module has its own oscillator and beeps; a passive one gives you a single click and then silence. Listings are often ambiguous, or sell mixed packs of both. The test takes a second: put 3.3 V straight across the buzzer, and a continuous tone means active.</p>
+      </div>
 
       <div class="tw">
         <table>
@@ -885,7 +890,7 @@ pre code { background: none; padding: 0; font-size: inherit; }
           <tbody>
             <tr><td><span class="pin">VCC</span> / <span class="pin">+</span></td><td>3.3 V</td><td>A 3.3 V part — some modules are 5 V, check yours</td></tr>
             <tr><td><span class="pin">GND</span> / <span class="pin">-</span></td><td>GND</td><td></td></tr>
-            <tr><td><span class="pin">I/O</span> / <span class="pin">S</span></td><td>GPIO18</td><td>The last free pin on the header</td></tr>
+            <tr><td><span class="pin">I/O</span> / <span class="pin">S</span></td><td>GPIO5</td><td></td></tr>
           </tbody>
         </table>
       </div>
@@ -895,6 +900,27 @@ pre code { background: none; padding: 0; font-size: inherit; }
       <p>If it shrieks continuously from boot and goes quiet only when the ACU commands a beep, the module is active low; there is a second option directly beneath the first for that. The firmware drives the pin to its silent level before anything else runs, so a correctly configured board is quiet from power-up.</p>
 
       <p>No beep logic is needed. The PD library decodes <code>osdp_BUZ</code> and resolves its on/off/count pattern over time, calling the firmware on each edge — the reader just switches the pin. It is also silenced whenever the OSDP link drops, because <code>osdp_BUZ</code> can command a continuous pattern and a reader that lost comms mid-beep would otherwise sound until someone unplugged it.</p>
+
+      <h3>Enclosure tamper switch (optional)</h3>
+
+      <p>Only worth wiring once the reader is in a box. Everything else works without it, and the option is <strong>off by default</strong> — with it on and no switch fitted, the input's pull-up reads the floating pin as a permanent tamper.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Enclosure tamper switch (optional)</caption>
+          <thead><tr><th>Switch</th><th>ESP32-C6</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>One leg</td><td>GPIO4 (header GP4)</td><td></td></tr>
+            <tr><td>Other leg</td><td>GND</td><td>No resistor — the internal pull-up supplies the high level</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>Use a normally-closed switch</strong> — one the enclosure lid holds <em>shut</em>. The lid then holds GP4 low, opening the lid releases it high, and so does a cut, corroded or disconnected wire. Sabotage reads as tamper. A normally-open switch cannot tell an intact quiet loop from a snipped one, so anyone with wire cutters defeats it silently. If yours is normally-open, there is an option for it directly beneath the first.</p>
+
+      <p>GP4 and GP5 are the microSD slot's chip select and data-out on this carrier, so using them for these two parts gives the card slot up — nothing in the firmware has ever used it. They are also strapping pins, which here does not matter: on the ESP32-C6, GP8/GP9 set the boot mode and GP15 the JTAG source, but <strong>GP4 and GP5 select SDIO clock edges</strong>, and this firmware never uses SDIO. Both float by default with no internal pull resistor. The build still rejects a tamper pin on 8, 9 or 15.</p>
+
+      <p>No reporting logic is needed either. The switch is debounced over 50 ms and its state goes into the tamper byte of <code>osdp_LSTATR</code>, both when the ACU asks with <code>osdp_LSTAT</code> and unsolicited on the next poll after a change. The 50 ms is not about contact bounce, which settles far faster — it stops a marginal switch, or a door that shakes in its frame, from turning into a stream of status reports at the head end.</p>
 
       <div class="tw">
         <table>
@@ -1042,7 +1068,7 @@ ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
       <p><strong>Do this before you trust it with a door.</strong></p>
 
       <h3>Enclosure and tamper</h3>
-      <p>The firmware reports tamper as permanently normal, because a bare dev board has no tamper switch. A reader in a wall box should have one, wired to a spare GPIO. The panel asks; give it a true answer.</p>
+      <p>Supported — a switch on GP4, see step 03 — but off by default and unwired on a bench build, in which case the reader still answers “normal” to every <code>osdp_LSTAT</code>. A reader in a wall box should have the switch fitted and the option turned on. The panel asks; give it a true answer.</p>
 
       <h3>The credential itself</h3>
       <p>A MIFARE Classic UID is not a secret. It is readable by anyone with a phone and clonable with commodity hardware. This reader reports the UID, which is the right thing for a reader to do — deciding whether a UID is sufficient authentication for a given door belongs to the access control system, not to the reader.</p>
@@ -1056,6 +1082,11 @@ ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
   <ul>
     <li><a href="https://docs.waveshare.com/ESP32-C6-LCD-1.47">Waveshare ESP32-C6-LCD-1.47 documentation</a></li>
     <li><a href="https://www.deshide.com/product-details_SH-U12.html">DSD TECH SH-U12 product page</a></li>
+    <li><a href="https://www.amazon.com/Buzzer-Module-Arduino-ESP8266-Raspberry/dp/B0DYDJMP16/">Active buzzer module</a> &mdash; the three-pin sounder in the wiring table</li>
+    <li><a href="https://lastminuteengineers.com/how-rfid-works-rc522-arduino-tutorial/">How RFID works, and the RC522 module</a>
+        &mdash; background on 13.56&nbsp;MHz RFID, the MFRC522 module's pinout and the MIFARE Classic 1K
+        memory layout. Its wiring section is Arduino hardware SPI on an Uno, not this board's pin map;
+        use the table above.</li>
     <li>OSDP-Embedded <code>docs/PD_GUIDE.md</code> — the PD library integration guide</li>
   </ul>
 </footer>

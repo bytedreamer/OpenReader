@@ -12,6 +12,7 @@
 #include "rc522.h"
 #include "display.h"
 #include "buzzer.h"
+#include "tamper.h"
 #include "osdp_reader.h"
 #include "status_led.h"
 
@@ -138,6 +139,11 @@ void app_main(void)
      * buzzer_init leaves the pin at its silent level, which on an
      * active-low part is not the state gpio_config would have left it in. */
     ESP_ERROR_CHECK(buzzer_init());
+#endif
+#if CONFIG_OPENREADER_TAMPER
+    /* Before osdp_reader_init(), so the very first osdp_LSTAT the ACU sends
+     * is answered from the switch rather than from the default. */
+    ESP_ERROR_CHECK(tamper_init());
 #endif
 #if defined(BOARD_SPI_HOST)
     ESP_ERROR_CHECK(spi_bus_init());

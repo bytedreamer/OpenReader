@@ -4,6 +4,7 @@ idf_component_register(
          "rc522.c"
          "status_led.c"
          "buzzer.c"
+         "tamper.c"
          "display.c"
          "osdp_reader.c"
     INCLUDE_DIRS "."
