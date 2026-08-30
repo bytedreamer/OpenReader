@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "esp_timer.h"          /* esp_timer_get_time — diagnostic cadence */
+#include "esp_system.h"         /* esp_reset_reason — restart reporting */
 #include "sdkconfig.h"
 
 #include <string.h>
@@ -43,14 +44,34 @@ static uint8_t s_event_queue[256];
 static osdp_pd_t   s_pd;
 static QueueHandle_t s_card_queue;
 
-/* Tamper and power are reported through the status provider. Neither has
- * hardware behind it on a bare dev board: there is no tamper switch and no
- * way to notice a supply brownout before it resets us. They are wired up
- * anyway because an ACU asks, and answering "normal" honestly is better
- * than NAKing osdp_LSTAT — but a production enclosure should drive
- * s_tamper from a real switch. */
+/* Tamper has no hardware behind it on a bare dev board — there is no switch
+ * to read — so it answers "normal", which is at least honest and better than
+ * NAKing osdp_LSTAT. A production enclosure should drive this from a real
+ * switch. */
 static uint8_t s_tamper = OSDP_LSTATR_NORMAL;
-static uint8_t s_power  = OSDP_LSTATR_NORMAL;
+
+/* Power used to report a hard-coded "normal" forever, so a PD that had just
+ * restarted looked to the ACU exactly like one that had been running all
+ * week. Every restart is now reported, whatever caused it.
+ *
+ * Reporting a software restart through a byte the spec calls "power failure"
+ * is a deliberate stretch. The justification is that it is the only channel
+ * OSDP gives a PD to say "I am not the same running instance you were
+ * talking to a moment ago", and that is what the head end actually needs to
+ * know: credentials in flight were lost, any cached state is gone, and a
+ * reader that restarts repeatedly is a fault whatever is causing it. An ACU
+ * that can see the restart can act; one that cannot, cannot. A narrower
+ * reading — only ESP_RST_POWERON / BROWNOUT / PWR_GLITCH — would leave a
+ * crash-looping PD looking perfectly healthy, which is the worse failure.
+ *
+ * The cause is still logged locally at boot, so "was it the supply?" stays
+ * answerable at the bench even though the wire cannot express it.
+ *
+ * Latched, not live: set at boot and held until the ACU has actually been
+ * told, because an ACU that polls osdp_LSTAT rarely would otherwise never
+ * learn of the restart at all. */
+static bool s_restart_event;    /* restart not yet reported to the ACU      */
+static bool s_restart_queued;   /* an unsolicited osdp_LSTATR is in the queue */
 
 /* ---- Identity ----------------------------------------------------------- */
 
@@ -315,7 +336,15 @@ static void status_local(void *user, uint8_t *tamper, uint8_t *power)
 {
     (void)user;
     *tamper = s_tamper;
-    *power  = s_power;
+    *power  = s_restart_event ? OSDP_LSTATR_POWER_FAILURE
+                              : OSDP_LSTATR_NORMAL;
+
+    /* An explicit osdp_LSTAT counts as the report, so the latch clears here
+     * too — not only on the unsolicited path. If the reply is then lost on
+     * the wire the ACU repeats the command, and the library replays the
+     * cached reply byte-for-byte rather than calling this again, so the
+     * retry still carries the power flag. */
+    s_restart_event = false;
 }
 
 static size_t status_readers(void *user, uint8_t *out, size_t cap)
@@ -406,12 +435,40 @@ static void drain_card_queue(void)
 
 /* ---- Lifecycle ---------------------------------------------------------- */
 
+/* Record that we restarted. Called once, before the PD is serviced.
+ *
+ * Reaching this function at all means a restart, so the latch is set
+ * unconditionally; esp_reset_reason() is read for the log rather than to
+ * decide anything. Keeping the cause visible locally is what lets someone
+ * at the bench tell a power cycle from a panic, a distinction the ACU is
+ * given no way to see. */
+static void note_reset_reason(void)
+{
+    static const char *const kReason[] = {
+        "unknown", "power-on", "external pin", "software restart", "panic",
+        "interrupt watchdog", "task watchdog", "other watchdog",
+        "deep sleep", "brownout", "SDIO", "USB", "JTAG", "efuse error",
+        "power glitch", "CPU lockup",
+    };
+    const esp_reset_reason_t why = esp_reset_reason();
+    const char *name =
+        ((size_t)why < sizeof(kReason) / sizeof(kReason[0]))
+            ? kReason[why] : "unrecognised";
+
+    s_restart_event = true;
+
+    ESP_LOGI(TAG, "restart: %s (reason %d) — will report to the ACU",
+             name, (int)why);
+}
+
 esp_err_t osdp_reader_init(void)
 {
     s_card_queue = xQueueCreate(8, sizeof(rc522_uid_t));
     if (s_card_queue == NULL) {
         return ESP_ERR_NO_MEM;
     }
+
+    note_reset_reason();
 
     osdp_pd_init(&s_pd, (uint8_t)CONFIG_OPENREADER_OSDP_ADDRESS);
     osdp_pd_set_transport(&s_pd, rs485_transport());
@@ -492,6 +549,44 @@ static void log_link_diagnostics(void)
                                 : "  (expected 0x53 first — check baud)");
 }
 
+/* Tell the ACU we restarted, without waiting to be asked.
+ *
+ * osdp_LSTATR is a legal answer to an osdp_POLL, so this rides the same
+ * event queue the card reads use and goes out on the very next poll rather
+ * than whenever the ACU next happens to send osdp_LSTAT.
+ *
+ * Deliberately called on the offline->online edge and not at init: the
+ * library discards the event queue when the PD drops offline (spec 7.11/
+ * 7.12, so a stale credential is never delivered late), and anything queued
+ * before the first poll would be thrown away by that same rule. */
+static void announce_restart(void)
+{
+    if (!s_restart_event || s_restart_queued) {
+        return;
+    }
+
+    const osdp_lstatr_t st = {
+        .tamper = s_tamper,
+        .power  = OSDP_LSTATR_POWER_FAILURE,
+    };
+    uint8_t body[OSDP_LSTATR_PAYLOAD_BYTES];
+    size_t  written = 0;
+
+    if (osdp_lstatr_build(&st, body, sizeof(body), &written) != OSDP_OK) {
+        ESP_LOGE(TAG, "could not build the restart osdp_LSTATR");
+        return;
+    }
+    if (osdp_pd_enqueue_event(&s_pd, OSDP_REPLY_LSTATR, body,
+                              written) != OSDP_OK) {
+        /* Queue full at the moment the link came up. The latch stays set,
+         * so the next reconnect tries again. */
+        ESP_LOGW(TAG, "event queue full; restart report deferred");
+        return;
+    }
+    s_restart_queued = true;
+    ESP_LOGI(TAG, "queued unsolicited osdp_LSTATR reporting the restart");
+}
+
 void osdp_reader_run(void)
 {
     bool     was_online = false;
@@ -506,7 +601,27 @@ void osdp_reader_run(void)
             ESP_LOGI(TAG, "link %s", online ? "online" : "offline");
             status_led_set_link(online);
             display_set_link(online);
+            if (online) {
+                announce_restart();
+            } else {
+                /* Going offline empties the event queue, our report with it.
+                 * Forget that it was ever queued so the next reconnect
+                 * re-sends it — the latch is still set, and an unreported
+                 * restart is exactly the thing that should survive a flaky
+                 * link rather than be quietly dropped. */
+                s_restart_queued = false;
+            }
             was_online = online;
+        }
+
+        /* The queue draining is the only evidence we get that the report
+         * actually went out; there is no per-event transmit hook. Ours is
+         * enqueued on the online edge, ahead of any card read, so an empty
+         * queue means it has definitely been sent. */
+        if (s_restart_queued && online && !osdp_pd_event_pending(&s_pd)) {
+            s_restart_event  = false;
+            s_restart_queued = false;
+            ESP_LOGI(TAG, "restart reported to the ACU; latch cleared");
         }
         status_led_tick();
 
