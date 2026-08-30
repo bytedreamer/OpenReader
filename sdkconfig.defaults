@@ -1,0 +1,44 @@
+# --- Scheduler -------------------------------------------------------------
+# OSDP is a tight request/response protocol: the PD must answer a poll well
+# inside the ACU's reply timeout, and osdp_pd_tick() also enforces the
+# spec-5.8 inter-character timeout from its own call cadence. At the IDF
+# default of 100 Hz a vTaskDelay(1) is 10 ms, which is far too coarse to
+# service the bus responsively. 1 kHz makes a 1 ms tick loop real.
+CONFIG_FREERTOS_HZ=1000
+
+# --- Target ----------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32c6"
+
+# --- Console ---------------------------------------------------------------
+# The board's USB-C is the ESP32-C6's native USB-Serial-JTAG, so logs and
+# flashing both ride it and UART1 stays free for RS-485.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- Logging ---------------------------------------------------------------
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- Stack / watchdog ------------------------------------------------------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+
+# --- Flash ------------------------------------------------------------------
+# The chip reports 8 MB; the build defaulted to 2 MB, which the bootloader
+# flagged at boot ("Detected size(8192k) larger than the size in the binary
+# image header(2048k)") and which caps the app partition well below what the
+# part actually has. Matters once NVS holds a Secure Channel key and OTA
+# needs two app slots.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+
+# --- RS-485 pins ------------------------------------------------------------
+# GP18/19 produced no traffic in either direction; trying GP0/GP1 to rule the
+# original pair in or out. Both are plain GPIOs on this part (GPIO0 is not a
+# strapping pin on the C6, unlike the original ESP32).
+CONFIG_OPENREADER_RS485_TX_GPIO=0
+CONFIG_OPENREADER_RS485_RX_GPIO=1
+
+# --- What SPI2 drives -------------------------------------------------------
+# The C6 has one general-purpose SPI master and a host has one set of bus
+# pins, so the onboard LCD (fixed on GPIO7/6) and an external RC522 (header
+# pins) cannot both be built. Stated here rather than left to the Kconfig
+# default so the shipped configuration is visible in the tree.
+CONFIG_OPENREADER_SPI2_LCD=y

@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  OpenReader build guide — standalone copy of the published Artifact at
+  https://claude.ai/code/artifact/c88834e3-f560-4e8e-961f-61ad84dd3402
+
+  Open it directly in a browser; it has no local dependencies beyond the
+  Google Fonts link below, and degrades to the declared fallback stacks
+  offline. Content is kept in step with docs/HARDWARE.md — change one and
+  change the other.
+
+  The <title>, <link> and <style> that follow </head> are hoisted into the
+  head by the HTML parser (per the "in body" insertion mode rules), so the
+  fragment below is left byte-identical to what is published.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<title>OpenReader Build Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+
+<style>
+/* ── Tokens ───────────────────────────────────────────────────────────────
+   Palette is drawn from the bench the thing gets built on: the teal of a
+   scope trace on a phosphor screen, copper for the parts that carry current,
+   amber reserved strictly for "this will destroy hardware". Neutrals are
+   biased a few degrees toward the teal so nothing reads as default grey. */
+:root {
+  --ground:        #EFF3F2;
+  --surface:       #FFFFFF;
+  --surface-sunk:  #E4EAE9;
+  --ink:           #101C1B;
+  --ink-soft:      #4A5B59;
+  --ink-faint:     #778886;
+  --rule:          #D3DCDA;
+  --rule-strong:   #B6C3C1;
+
+  --accent:        #0B6F68;   /* signal teal */
+  --accent-soft:   #DCEDEB;
+  --copper:        #A54C16;   /* parts, part numbers */
+  --copper-soft:   #F6E7DC;
+
+  --danger:        #A32C12;
+  --danger-soft:   #FBE6DF;
+  --danger-rule:   #E0A896;
+
+  --ok:            #2F6B33;
+  --ok-soft:       #E2EFE1;
+
+  --shadow: 0 1px 2px rgba(16,28,27,.05), 0 8px 24px -12px rgba(16,28,27,.16);
+
+  --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --measure: 68ch;
+  --pad: clamp(1.25rem, 4vw, 3rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:       #0C1413;
+    --surface:      #141F1E;
+    --surface-sunk: #0A1110;
+    --ink:          #DCE7E5;
+    --ink-soft:     #9AACAA;
+    --ink-faint:    #6B7C7A;
+    --rule:         #24322F;
+    --rule-strong:  #354643;
+
+    --accent:       #46B3A8;
+    --accent-soft:  #102A28;
+    --copper:       #D98B55;
+    --copper-soft:  #2A1B12;
+
+    --danger:       #F0836A;
+    --danger-soft:  #2B120C;
+    --danger-rule:  #6B2E1E;
+
+    --ok:           #6FBF74;
+    --ok-soft:      #142514;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:       #0C1413;
+  --surface:      #141F1E;
+  --surface-sunk: #0A1110;
+  --ink:          #DCE7E5;
+  --ink-soft:     #9AACAA;
+  --ink-faint:    #6B7C7A;
+  --rule:         #24322F;
+  --rule-strong:  #354643;
+
+  --accent:       #46B3A8;
+  --accent-soft:  #102A28;
+  --copper:       #D98B55;
+  --copper-soft:  #2A1B12;
+
+  --danger:       #F0836A;
+  --danger-soft:  #2B120C;
+  --danger-rule:  #6B2E1E;
+
+  --ok:           #6FBF74;
+  --ok-soft:      #142514;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: 0 var(--pad) 6rem;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.masthead {
+  padding: clamp(3rem, 8vw, 5.5rem) 0 2.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: .75rem;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 1.25rem;
+}
+
+h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 7vw, 4.75rem);
+  line-height: .98;
+  letter-spacing: -.025em;
+  text-wrap: balance;
+  margin: 0 0 1.25rem;
+}
+
+.standfirst {
+  font-size: clamp(1.075rem, 2vw, 1.3rem);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 46ch;
+  margin: 0 0 2.5rem;
+}
+
+.vitals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface);
+  max-width: 46rem;
+}
+.vital {
+  flex: 1 1 9rem;
+  padding: .9rem 1.1rem;
+  border-right: 1px solid var(--rule);
+}
+.vital:last-child { border-right: 0; }
+.vital dt {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 .3rem;
+}
+.vital dd {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Section scaffolding ──────────────────────────────────────────────
+   The step number is real information here: this is a procedure and the
+   order is load-bearing, so the rail carries the sequence rather than
+   decorating it. */
+section { padding-top: 3.75rem; }
+
+.sec-head {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 0 1.25rem;
+  align-items: start;
+  margin-bottom: 1.5rem;
+}
+.step {
+  font-family: var(--mono);
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--accent);
+  padding-top: .55rem;
+  border-top: 2px solid var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  line-height: 1.12;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+  margin: 0;
+  padding-top: .1rem;
+}
+.sec-body { grid-column: 2; }
+
+h3 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -.01em;
+  margin: 2.25rem 0 .6rem;
+}
+
+p, ul, ol { max-width: var(--measure); }
+p { margin: 0 0 1.1rem; }
+ul, ol { margin: 0 0 1.1rem; padding-left: 1.2rem; }
+li { margin-bottom: .45rem; }
+li::marker { color: var(--accent); }
+
+strong { font-weight: 600; }
+code {
+  font-family: var(--mono);
+  font-size: .875em;
+  background: var(--surface-sunk);
+  padding: .12em .38em;
+  border-radius: 3px;
+}
+
+/* Pin names and part designators read as hardware, not prose. */
+.pin {
+  font-family: var(--mono);
+  font-size: .84em;
+  font-weight: 500;
+  color: var(--copper);
+  background: var(--copper-soft);
+  padding: .1em .4em;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* ── Callouts ─────────────────────────────────────────────────────────── */
+.callout {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  padding: 1.15rem 1.35rem;
+  border-radius: 3px;
+  margin: 1.75rem 0;
+  max-width: var(--measure);
+}
+.callout > :last-child { margin-bottom: 0; }
+.callout .label {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: .5rem;
+}
+
+/* The one thing in this build that destroys hardware gets the loudest
+   treatment on the page, and nothing else competes for it. */
+.callout.danger {
+  border-color: var(--danger-rule);
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+.callout.danger .label { color: var(--danger); }
+.callout.danger .headline {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.15rem, 2.6vw, 1.5rem);
+  line-height: 1.2;
+  letter-spacing: -.015em;
+  color: var(--danger);
+  margin: 0 0 .75rem;
+  text-wrap: balance;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────── */
+.tw { overflow-x: auto; margin: 1.5rem 0 1.75rem; }
+table {
+  width: 100%;
+  min-width: 30rem;
+  border-collapse: collapse;
+  font-size: .925rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+caption {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: .7rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-bottom: .6rem;
+}
+th, td {
+  text-align: left;
+  padding: .62rem .85rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+thead th {
+  font-family: var(--mono);
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qty { font-family: var(--mono); color: var(--ink-faint); font-size: .85em; }
+
+/* ── Figures ──────────────────────────────────────────────────────────── */
+figure {
+  margin: 1.75rem 0;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow-x: auto;
+}
+figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figcaption {
+  font-size: .85rem;
+  color: var(--ink-soft);
+  margin-top: 1rem;
+  padding-top: .85rem;
+  border-top: 1px solid var(--rule);
+  max-width: var(--measure);
+}
+.svg-ink   { fill: var(--ink); }
+.svg-soft  { fill: var(--ink-soft); }
+.svg-wire  { stroke: var(--ink-soft); stroke-width: 1.5; fill: none; }
+.svg-hot   { stroke: var(--danger); stroke-width: 2; fill: none; }
+.svg-safe  { stroke: var(--accent); stroke-width: 2; fill: none; }
+.svg-box   { fill: var(--surface-sunk); stroke: var(--rule-strong); stroke-width: 1.5; }
+.svg-label { font-family: var(--mono); font-size: 11px; }
+
+/* ── Resistor bands ───────────────────────────────────────────────────
+   These are depictions of a physical object, so the band colours are fixed
+   literals and do NOT follow the theme — a "red" band that shifted between
+   light and dark would be worse than useless on a colour reference. Only
+   the surrounding chrome is themed. Every graphic is paired with the colour
+   names in text: the drawing is the convenience, the words are the source
+   of truth. */
+:root {
+  --band-black:  #17171A;
+  --band-brown:  #6D4225;
+  --band-red:    #C0272D;
+  --band-orange: #E87211;
+  --band-yellow: #EFC219;
+  --band-green:  #2C7A39;
+  --band-blue:   #1663B0;
+  --band-violet: #6B3FA0;
+  --band-grey:   #9A9A9E;
+  --band-white:  #F2F2EE;
+  --band-gold:   #C9A227;
+  --band-silver: #BFC3C6;
+
+  --res-carbon:  #DCC79B;   /* 5% carbon film — the familiar tan body */
+  --res-metal:   #A9C6D6;   /* 1% metal film — usually pale blue      */
+  --res-lead:    #9AA0A2;
+}
+
+.res {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 3px;
+  width: 108px;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--res-carbon);
+  border: 1px solid rgba(0,0,0,.3);
+  border-radius: 12px / 13px;
+  position: relative;
+  vertical-align: middle;
+  margin: 0 10px;
+  flex: none;
+}
+.res.mf { background: var(--res-metal); }
+.res::before, .res::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: var(--res-lead);
+  transform: translateY(-50%);
+}
+.res::before { left: -10px; }
+.res::after  { right: -10px; }
+.res i {
+  width: 5px;
+  background: var(--c);
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 .5px rgba(0,0,0,.35);
+}
+/* The tolerance band sits alone past the wider gap — the cue that tells you
+   which end to start reading from. */
+.res i.tol { margin-left: auto; }
+
+td.bandcell { white-space: nowrap; }
+.bandnames {
+  font-family: var(--mono);
+  font-size: .78rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+tr.dim td { color: var(--ink-faint); }
+
+/* ── Code / logs ──────────────────────────────────────────────────────── */
+pre {
+  font-family: var(--mono);
+  font-size: .82rem;
+  line-height: 1.6;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  margin: 1.25rem 0;
+  max-width: var(--measure);
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+.log-ok  { color: var(--ok); }
+.log-bad { color: var(--danger); }
+.log-dim { color: var(--ink-faint); }
+
+/* ── Bring-up checks ──────────────────────────────────────────────────── */
+.check {
+  border-left: 2px solid var(--rule-strong);
+  padding-left: 1.35rem;
+  margin: 0 0 2.25rem;
+}
+.check h3 { margin-top: 0; }
+.check h3 .n {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--accent);
+  margin-right: .5rem;
+}
+
+/* ── Status list ──────────────────────────────────────────────────────── */
+.foot {
+  margin-top: 5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--rule);
+  font-size: .9rem;
+  color: var(--ink-soft);
+}
+.foot h2 {
+  font-size: 1rem;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: .9rem;
+}
+.foot ul { list-style: none; padding: 0; }
+
+@media (max-width: 40rem) {
+  .sec-head { grid-template-columns: 1fr; gap: .5rem; }
+  .step { border-top: 0; padding-top: 0; }
+  .sec-body { grid-column: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Open hardware · OSDP v2.2.2</p>
+  <h1>OpenReader Build Guide</h1>
+  <p class="standfirst">A card reader you can put on a real RS-485 bus and poll from a real access control panel — built from three boards and two resistors.</p>
+  <dl class="vitals">
+    <div class="vital"><dt>Parts cost</dt><dd>$35–45</dd></div>
+    <div class="vital"><dt>Build time</dt><dd>~1 hour</dd></div>
+    <div class="vital"><dt>Soldering</dt><dd>Minimal</dd></div>
+    <div class="vital"><dt>Protocol</dt><dd>OSDP PD</dd></div>
+  </dl>
+</header>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">00</div>
+    <h2>What you are building</h2>
+    <div class="sec-body">
+      <p>A <strong>PD</strong> — Peripheral Device, in OSDP's vocabulary. It is the reader at the door. It sits on an RS-485 bus, answers polls from an <strong>ACU</strong> (Access Control Unit, the panel), and when someone presents a card it reports the credential on the next poll.</p>
+      <p>The panel decides whether the door opens. The reader never does. That split is the whole point of OSDP, and it is why a reader is a comparatively simple device to build.</p>
+
+      <figure>
+        <svg viewBox="0 0 680 190" role="img" aria-label="OpenReader connected to an access control unit over a three-wire RS-485 bus: A, B and ground.">
+          <rect class="svg-box" x="12" y="30" width="150" height="82" rx="3"/>
+          <text class="svg-label svg-ink" x="87" y="60" text-anchor="middle" font-weight="600">OpenReader</text>
+          <text class="svg-label svg-soft" x="87" y="78" text-anchor="middle">the PD</text>
+          <text class="svg-label svg-soft" x="87" y="96" text-anchor="middle">ESP32-C6</text>
+
+          <rect class="svg-box" x="518" y="30" width="150" height="82" rx="3"/>
+          <text class="svg-label svg-ink" x="593" y="60" text-anchor="middle" font-weight="600">ACU</text>
+          <text class="svg-label svg-soft" x="593" y="78" text-anchor="middle">the panel</text>
+          <text class="svg-label svg-soft" x="593" y="96" text-anchor="middle">decides access</text>
+
+          <path class="svg-safe" d="M162 52 H518"/>
+          <path class="svg-safe" d="M162 71 H518"/>
+          <path class="svg-wire" d="M162 96 H518" stroke-dasharray="5 4"/>
+
+          <text class="svg-label svg-soft" x="340" y="45" text-anchor="middle">A</text>
+          <text class="svg-label svg-soft" x="340" y="88" text-anchor="middle">B</text>
+          <text class="svg-label svg-soft" x="340" y="112" text-anchor="middle">GND</text>
+          <text class="svg-label svg-soft" x="340" y="140" text-anchor="middle">twisted pair, half duplex</text>
+
+          <rect class="svg-box" x="42" y="140" width="90" height="36" rx="3"/>
+          <text class="svg-label svg-ink" x="87" y="163" text-anchor="middle">RC522</text>
+          <path class="svg-wire" d="M87 112 V140"/>
+          <text class="svg-label svg-soft" x="145" y="163">← the card goes here</text>
+        </svg>
+        <figcaption>Two data wires and a ground reference. The reader reports; the panel decides.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">01</div>
+    <h2>Bill of materials</h2>
+    <div class="sec-body">
+      <div class="tw">
+        <table>
+          <caption>Everything you need</caption>
+          <thead>
+            <tr><th>Part</th><th>Why this one</th><th class="num">Approx.</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Waveshare ESP32-C6-LCD-1.47</strong></td>
+              <td>RISC-V ESP32-C6 with a 1.47″ LCD, an RGB LED and a microSD slot already on board. The RGB LED becomes the reader LED the panel drives.</td>
+              <td class="num">$16</td>
+            </tr>
+            <tr>
+              <td><strong>DSD TECH SH-U12</strong><br><span class="qty">RS-485 ↔ TTL</span></td>
+              <td>Uses the <strong>MAX13487</strong>, which switches direction on its own. No DE/RE pin to toggle means no timing bug to write.</td>
+              <td class="num">$9</td>
+            </tr>
+            <tr>
+              <td><strong>SunFounder RC522</strong><br><span class="qty">MFRC522 kit</span></td>
+              <td>MIFARE reader over SPI at 3.3 V. The kit includes a card and a fob, so you have something to present.</td>
+              <td class="num">$8</td>
+            </tr>
+            <tr>
+              <td><strong>1 kΩ + 2 kΩ resistors</strong><br><span class="qty">¼ W</span></td>
+              <td>The level shifter. See step 02 — this is not optional.</td>
+              <td class="num">$1</td>
+            </tr>
+            <tr>
+              <td><strong>120 Ω resistor</strong><br><span class="qty">¼ W</span></td>
+              <td>Bus termination, only if your reader sits at a physical end of the bus.</td>
+              <td class="num">—</td>
+            </tr>
+            <tr>
+              <td><strong>Jumper wires</strong><br><span class="qty">female–female</span></td>
+              <td>Bench wiring. Perfboard and solid core for anything permanent.</td>
+              <td class="num">$3</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>For a permanent install, add shielded twisted-pair cable (22–24 AWG, Belden 3105A or equivalent) and a 12 V supply with a buck converter to 5 V.</p>
+      <p><strong>Tools:</strong> a soldering iron for the level shifter, or a breadboard. A multimeter. An oscilloscope is not required but makes step 06 much faster when something is wrong.</p>
+
+      <h3>Identifying your resistors</h3>
+      <p>Getting the divider wrong is the one parts mistake in this build that damages hardware. Worth thirty seconds with the markings, and thirty more with a meter.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Through-hole · 4 bands · typically 5%</caption>
+          <thead><tr><th>Value</th><th>Bands</th><th>Colours</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>120 Ω</strong><br><span class="qty">termination</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="brown, red, brown, gold"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-red)"></i><i style="--c:var(--band-brown)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">brown · red · brown · gold</td>
+            </tr>
+            <tr>
+              <td><strong>1 kΩ</strong><br><span class="qty">divider, upper</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="brown, black, red, gold"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-red)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">brown · black · red · gold</td>
+            </tr>
+            <tr>
+              <td><strong>2 kΩ</strong><br><span class="qty">divider, lower</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="red, black, red, gold"><i style="--c:var(--band-red)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-red)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">red · black · red · gold</td>
+            </tr>
+            <tr>
+              <td>1.8 kΩ<br><span class="qty">alternative</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="brown, grey, red, gold"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-grey)"></i><i style="--c:var(--band-red)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">brown · grey · red · gold</td>
+            </tr>
+            <tr>
+              <td>2.2 kΩ<br><span class="qty">alternative</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="red, red, red, gold"><i style="--c:var(--band-red)"></i><i style="--c:var(--band-red)"></i><i style="--c:var(--band-red)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">red · red · red · gold</td>
+            </tr>
+            <tr class="dim">
+              <td>10 kΩ<br><span class="qty">not this build</span></td>
+              <td class="bandcell"><span class="res" role="img" aria-label="brown, black, orange, gold"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-orange)"></i><i class="tol" style="--c:var(--band-gold)"></i></span></td>
+              <td class="bandnames">brown · black · orange · gold</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Through-hole · 5 bands · typically 1%</caption>
+          <thead><tr><th>Value</th><th>Bands</th><th>Colours</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>120 Ω</strong></td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="brown, red, black, black, brown"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-red)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-black)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">brown · red · black · black · brown</td>
+            </tr>
+            <tr>
+              <td><strong>1 kΩ</strong></td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="brown, black, black, brown, brown"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-brown)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">brown · black · black · brown · brown</td>
+            </tr>
+            <tr>
+              <td><strong>2 kΩ</strong></td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="red, black, black, brown, brown"><i style="--c:var(--band-red)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-brown)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">red · black · black · brown · brown</td>
+            </tr>
+            <tr>
+              <td>1.8 kΩ</td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="brown, grey, black, brown, brown"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-grey)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-brown)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">brown · grey · black · brown · brown</td>
+            </tr>
+            <tr>
+              <td>2.2 kΩ</td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="red, red, black, brown, brown"><i style="--c:var(--band-red)"></i><i style="--c:var(--band-red)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-brown)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">red · red · black · brown · brown</td>
+            </tr>
+            <tr class="dim">
+              <td>10 kΩ</td>
+              <td class="bandcell"><span class="res mf" role="img" aria-label="brown, black, black, red, brown"><i style="--c:var(--band-brown)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-black)"></i><i style="--c:var(--band-red)"></i><i class="tol" style="--c:var(--band-brown)"></i></span></td>
+              <td class="bandnames">brown · black · black · red · brown</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <span class="label">Which end do you read from?</span>
+        <p>The tolerance band — gold or silver on most parts — goes on the <strong>right</strong>. When both ends look plausible, the wider gap sits between the multiplier and the tolerance band. Still ambiguous? Measure it. A resistor isn't directional, so guessing wrong about the reading direction costs nothing.</p>
+        <p>On a 5-band part the <em>third</em> band is a digit, not the multiplier. Reading a 1% part as though it were 5% is the classic way to end up with a resistor 10× off.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>Colour values</caption>
+          <thead><tr><th>Colour</th><th>Digit</th><th>Multiplier</th><th>Tolerance</th></tr></thead>
+          <tbody>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="black"><i style="--c:var(--band-black)"></i></span> Black</td><td class="num">0</td><td class="num">×1</td><td>—</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="brown"><i style="--c:var(--band-brown)"></i></span> Brown</td><td class="num">1</td><td class="num">×10</td><td>±1%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="red"><i style="--c:var(--band-red)"></i></span> Red</td><td class="num">2</td><td class="num">×100</td><td>±2%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="orange"><i style="--c:var(--band-orange)"></i></span> Orange</td><td class="num">3</td><td class="num">×1 k</td><td>—</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="yellow"><i style="--c:var(--band-yellow)"></i></span> Yellow</td><td class="num">4</td><td class="num">×10 k</td><td>—</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="green"><i style="--c:var(--band-green)"></i></span> Green</td><td class="num">5</td><td class="num">×100 k</td><td>±0.5%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="blue"><i style="--c:var(--band-blue)"></i></span> Blue</td><td class="num">6</td><td class="num">×1 M</td><td>±0.25%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="violet"><i style="--c:var(--band-violet)"></i></span> Violet</td><td class="num">7</td><td class="num">×10 M</td><td>±0.1%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="grey"><i style="--c:var(--band-grey)"></i></span> Grey</td><td class="num">8</td><td>—</td><td>—</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="white"><i style="--c:var(--band-white)"></i></span> White</td><td class="num">9</td><td>—</td><td>—</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="gold"><i style="--c:var(--band-gold)"></i></span> Gold</td><td>—</td><td class="num">×0.1</td><td>±5%</td></tr>
+            <tr><td class="bandcell"><span class="res" style="width:26px;padding:0 7px;margin:0" role="img" aria-label="silver"><i style="--c:var(--band-silver)"></i></span> Silver</td><td>—</td><td class="num">×0.01</td><td>±10%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Surface mount</h3>
+      <p>SMD parts are printed, not banded.</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Marking style</th><th>Reading</th><th>1 kΩ</th><th>2 kΩ</th><th>120 Ω</th></tr></thead>
+          <tbody>
+            <tr><td>3-digit <span class="qty">(5%)</span></td><td>2 digits + zero count</td><td><code>102</code></td><td><code>202</code></td><td><code>121</code></td></tr>
+            <tr><td>4-digit <span class="qty">(1%)</span></td><td>3 digits + zero count</td><td><code>1001</code></td><td><code>2001</code></td><td><code>1200</code></td></tr>
+            <tr><td>EIA-96 <span class="qty">(1%)</span></td><td>value code + multiplier letter</td><td><code>01B</code></td><td><code>30B</code></td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><code>R</code> marks a decimal point — <code>4R7</code> is 4.7 Ω, and <code>000</code> or <code>0R0</code> is a zero-ohm jumper. The trap in the 4-digit scheme is the final digit: <code>1001</code> is 1 kΩ but <code>1002</code> is 10 kΩ, and on an 0603 part that difference is a fraction of a millimetre of ink.</p>
+
+      <div class="callout">
+        <span class="label">Verify with a meter regardless</span>
+        <p>Expect 990–1010 Ω for a 1 kΩ 1% part, or 950–1050 Ω at 5%. Measure with the resistor <strong>out of circuit and touching nothing else</strong> — one connected end is enough to shunt the reading through whatever it's attached to, and your own fingers across the probes will read low on high-value parts.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">02</div>
+    <h2>The one mistake that kills the board</h2>
+    <div class="sec-body">
+      <div class="callout danger">
+        <span class="label">Read before connecting anything</span>
+        <p class="headline">The SH-U12 is a 5 V board. The ESP32-C6 is not 5 V tolerant.</p>
+        <p>The SH-U12's <span class="pin">TXD</span> pin — the transceiver's output, the one carrying data <em>from</em> the bus <em>to</em> your microcontroller — idles and swings at 5 V. The ESP32-C6's GPIOs are rated to 3.3 V with no tolerance for more. Wiring <span class="pin">TXD</span> straight to a GPIO will damage the pin, and often the chip.</p>
+        <p>The other direction is fine. The MAX13487's input threshold is 2.0 V on a 5 V supply, so the ESP32-C6's 3.3 V output drives it with margin. <strong>Only the TXD → RX path needs shifting.</strong></p>
+      </div>
+
+      <p>A tempting shortcut is to power the SH-U12 from 3.3 V instead. Don't. The MAX13487 is specified for 4.5–5.5 V; below that, the differential voltage it puts on the bus falls out of spec. You get a reader that works on the bench with 30 cm of wire and fails on 200 m of real cable — the worst kind of bug to chase.</p>
+
+      <h3>The level shifter</h3>
+      <p>A resistor divider is the right tool. One direction only, low data rate, nothing to go wrong.</p>
+
+      <figure>
+        <svg viewBox="0 0 620 210" role="img" aria-label="Resistor divider: SH-U12 TXD at 5 volts through a 1 kilohm resistor to a node, then a 2 kilohm resistor to ground; the node connects to ESP32-C6 GPIO1.">
+          <text class="svg-label svg-soft" x="10" y="52">SH-U12</text>
+          <text class="svg-label" x="10" y="68" fill="var(--danger)" font-weight="600">TXD · 5 V</text>
+
+          <path class="svg-hot" d="M92 60 H175"/>
+
+          <rect class="svg-box" x="175" y="47" width="76" height="26" rx="2"/>
+          <text class="svg-label svg-ink" x="213" y="65" text-anchor="middle">1 kΩ</text>
+
+          <path class="svg-safe" d="M251 60 H400"/>
+          <circle cx="330" cy="60" r="4" fill="var(--accent)"/>
+          <path class="svg-safe" d="M400 60 H470"/>
+
+          <text class="svg-label svg-soft" x="478" y="52">ESP32-C6</text>
+          <text class="svg-label" x="478" y="68" fill="var(--accent)" font-weight="600">GPIO1 · 3.33 V</text>
+
+          <path class="svg-safe" d="M330 60 V105"/>
+          <rect class="svg-box" x="292" y="105" width="76" height="26" rx="2"/>
+          <text class="svg-label svg-ink" x="330" y="123" text-anchor="middle">2 kΩ</text>
+          <path class="svg-wire" d="M330 131 V160"/>
+          <path class="svg-wire" d="M310 160 H350 M317 168 H343 M324 176 H336"/>
+          <text class="svg-label svg-soft" x="360" y="167">GND (common)</text>
+        </svg>
+        <figcaption>5 V × (2 kΩ ÷ 3 kΩ) = <strong>3.33 V</strong>. Inside spec, and still well above the ESP32-C6's ~2.3 V input-high threshold, so there is margin at both ends.</figcaption>
+      </figure>
+
+      <p>Keep both resistors close to the ESP32-C6 end and keep the wire after them short — a divider raises source impedance, so a long run past it picks up noise more easily. At OSDP baud rates this is undemanding; 10 cm of jumper wire is fine.</p>
+
+      <div class="callout">
+        <span class="label">If you would rather use a part than two resistors</span>
+        <p>A 74AHCT1G125 or 74LVC1G17 running from 3.3 V works and is faster, and a TXS0108E breakout does the job with more pins than you need. All of them are more parts for the same result at 9600 baud.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">03</div>
+    <h2>Wiring</h2>
+    <div class="sec-body">
+      <p>The onboard peripherals already claim GPIO 4, 5, 6, 7, 8, 14, 15, 21 and 22. GPIO 12/13 are the native USB pins and GPIO 9 is the BOOT strap, so those are off limits too. Everything below is chosen from what remains. Strapping pins on the ESP32-C6 are GPIO 4, 5, 8, 9 and 15 — nothing here uses one.</p>
+
+      <h3>Why not the pins labelled TX and RX?</h3>
+      <p>The header's <span class="pin">TX</span>/<span class="pin">RX</span> are <strong>GPIO16/GPIO17</strong> — UART0's default mapping, which is what the silkscreen is naming. They really are free: this board has no USB-UART bridge chip, so flashing and the console both ride the ESP32-C6's native USB on GPIO12/13, and nothing is holding UART0.</p>
+      <p>We still don't put RS-485 there. <strong>The ROM bootloader transmits its banner on GPIO16 at 115200 baud on every reset</strong>, before any firmware runs. On a bench that is harmless noise the panel drops on a CRC check; on a live multi-drop bus it is garbage arriving on top of another device's reply.</p>
+      <p>That behaviour belongs to the <em>pin</em>, not the UART peripheral — the ESP32-C6 routes any UART to any GPIO through its GPIO matrix, so assigning UART1 to GPIO16/17 would not avoid it, because the ROM has already transmitted by then. You can suppress ROM printing (GPIO15 is the strapping pin for it, and there is an eFuse) but that is a permanent change to make for tidier wiring.</p>
+      <p>Left alone, <span class="pin">TX</span>/<span class="pin">RX</span> are a debug console you can attach while the RS-485 side is busy talking to a panel — worth more than the neater cable run, especially while bringing up Secure Channel.</p>
+
+      <div class="callout">
+        <span class="label">Verify against your own board</span>
+        <p>Waveshare has shipped more than one revision of the 1.47″ carrier, and the <em>Touch</em> variant differs again. The LCD, SD and LED pins below come from the ESP32-C6-LCD-1.47 documentation. The same values live in <code>main/board.h</code> — change them there and the firmware and this table stay in agreement.</p>
+      </div>
+
+      <div class="tw">
+        <table>
+          <caption>RS-485 — DSD TECH SH-U12</caption>
+          <thead><tr><th>SH-U12 pin</th><th>Goes to</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pin">VCC</span></td><td>Board <strong>5 V</strong> pin</td><td>Not 3.3 V — see step 02</td></tr>
+            <tr><td><span class="pin">GND</span></td><td>Board <span class="pin">GND</span></td><td></td></tr>
+            <tr><td><span class="pin">RXD</span></td><td><strong>GPIO0</strong> (header GP0, UART1 TX)</td><td>Direct. 3.3 V drives it fine</td></tr>
+            <tr><td><span class="pin">TXD</span></td><td><strong>Through the divider</strong> → GPIO1 (header GP1)</td><td style="color:var(--danger);font-weight:600">Never direct</td></tr>
+            <tr><td><span class="pin">A</span></td><td>Bus line A</td><td>Twisted pair, with B</td></tr>
+            <tr><td><span class="pin">B</span></td><td>Bus line B</td><td></td></tr>
+            <tr><td><span class="pin">GND</span></td><td>Bus signal ground</td><td>Yes, really — see step 04</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>There is no DE or RE pin to wire. The MAX13487 senses the start of your transmission, turns the driver on itself, and releases the bus when you stop. This is why the firmware's <code>write()</code> waits for the UART to fully drain before returning: with no explicit direction pin, the end of the last bit <em>is</em> the end of your turn on the wire.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Card reader — MFRC522</caption>
+          <thead><tr><th>RC522 pin</th><th>ESP32-C6</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pin">3.3V</span></td><td>3.3 V</td><td style="color:var(--danger);font-weight:600">Never 5 V — this is a 3.3 V part</td></tr>
+            <tr><td><span class="pin">GND</span></td><td>GND</td><td></td></tr>
+            <tr><td><span class="pin">SCK</span></td><td>GPIO2</td><td></td></tr>
+            <tr><td><span class="pin">MOSI</span></td><td>GPIO3</td><td></td></tr>
+            <tr><td><span class="pin">MISO</span></td><td>GPIO19</td><td></td></tr>
+            <tr><td><span class="pin">SDA</span></td><td>GPIO23</td><td><strong>This is chip select, not I²C data</strong></td></tr>
+            <tr><td><span class="pin">RST</span></td><td>GPIO20</td><td></td></tr>
+            <tr><td><span class="pin">IRQ</span></td><td>Leave off</td><td>The driver polls; IRQ is unused</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The RC522's <span class="pin">SDA</span> pin is a chip select, not I²C data. The silkscreen is misleading and it catches almost everyone once.</p>
+
+      <p>The RC522 gets SPI2 on header pins of its own. It cannot share the LCD's bus: that bus's clock and data (GPIO6/7) never leave the board. The ESP32-C6's GPIO matrix routes SPI2 to any pin, so the RC522's lines are picked from the free header GPIOs, avoiding the strapping pins.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Already on the board — nothing to wire</caption>
+          <thead><tr><th>Function</th><th>GPIO</th></tr></thead>
+          <tbody>
+            <tr><td>LCD MOSI / SCLK</td><td class="num">6 / 7</td></tr>
+            <tr><td>LCD CS / DC / RST / backlight</td><td class="num">14 / 15 / 21 / 22</td></tr>
+            <tr><td>microSD CS / MISO</td><td class="num">4 / 5</td></tr>
+            <tr><td>WS2812 RGB LED</td><td class="num">8</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">04</div>
+    <h2>The bus itself</h2>
+    <div class="sec-body">
+      <p>Three things matter. Skipping any of them produces a reader that works across a desk and fails down a corridor.</p>
+
+      <h3>Twisted pair</h3>
+      <p>A and B must be the two conductors of <em>one</em> twisted pair. That twist is what makes RS-485 reject noise; using two random wires from a ribbon cable throws the entire benefit away.</p>
+
+      <h3>Ground</h3>
+      <p>Connect the bus's signal ground. RS-485 is differential but not magic — the receivers still need both ends to sit inside a common-mode range, −7 V to +12 V for this part. Two devices on separate supplies with no ground reference can drift outside it and stop communicating, or damage something. On shielded cable, ground the shield at <em>one</em> end only.</p>
+
+      <h3>Termination</h3>
+      <p>120 Ω across A and B at each of the <strong>two physical ends</strong> of the bus, and only there. A reader in the middle of a daisy chain gets no terminator.</p>
+      <p>Check whether your SH-U12 already has one fitted — look for a resistor marked <code>121</code> or <code>120</code> near the A/B terminals. If it does and your reader sits mid-bus, remove it, or the bus is over-terminated and the signal collapses.</p>
+
+      <div class="callout">
+        <span class="label">What you don't need</span>
+        <p>No external bias network. The MAX13487E has a true failsafe receiver, so an idle undriven bus reads as a logical high — which is the UART's idle state. Nothing appears on the line until someone actually transmits.</p>
+      </div>
+
+      <h3>Power</h3>
+      <p>On the bench, the USB-C cable powers everything: the board regulates 3.3 V for itself and the RC522, and passes 5 V through for the SH-U12. Draw is modest — roughly 30–80 mA for the ESP32-C6 with Wi-Fi idle, plus about 25 mA for the RC522 with its antenna on.</p>
+      <p>For an installed reader, take the 12 V that panels normally distribute and buck it to 5 V <em>at the reader</em>. Do not run 5 V down a long cable from the panel; the drop over a couple of hundred metres of 24 AWG will put you below what the regulator needs.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">05</div>
+    <h2>Bring-up, in order</h2>
+    <div class="sec-body">
+      <p>Do these in sequence. Each one rules out a layer, so a failure tells you where to look instead of leaving you guessing.</p>
+
+      <div class="check">
+        <h3><span class="n">5.1</span>Board alive</h3>
+        <p>Flash with nothing but USB connected:</p>
+        <pre><code>idf.py set-target esp32c6
+idf.py build flash monitor</code></pre>
+        <p>The RGB LED should breathe blue — the firmware saying <em>no ACU is polling me</em>, which is correct, because none is.</p>
+        <pre><code><span class="log-ok">I</span> (312) main: OpenReader starting
+<span class="log-ok">I</span> (318) led: WS2812 on GPIO8
+<span class="log-ok">I</span> (330) rs485: UART1 up at 9600 baud (TX=0 RX=1)</code></pre>
+      </div>
+
+      <div class="check">
+        <h3><span class="n">5.2</span>The RC522 answers</h3>
+        <p>Same run, a line or two later:</p>
+        <pre><code><span class="log-ok">I</span> (352) rc522: MFRC522 online, VersionReg=0x92</code></pre>
+        <p><code>0x91</code> and <code>0x92</code> are the genuine v1.0 and v2.0 parts; clones report other values and work fine. What you must not see:</p>
+        <pre><code><span class="log-bad">E</span> (352) rc522: no response (VersionReg=0x00) — check SPI wiring ...</code></pre>
+        <p><code>0x00</code> or <code>0xFF</code> means the SPI bus is not talking at all — MISO stuck low or high. In order of likelihood: <span class="pin">SDA</span>/CS on the wrong pin, MISO and MOSI swapped, or the module powered from 5 V.</p>
+        <p>Now present the card from the kit:</p>
+        <pre><code><span class="log-ok">I</span> (5012) main: card A3:7F:2C:19 (SAK 0x08)</code></pre>
+        <p>If the UID reads only intermittently, the antenna is marginal — usually long jumper wires to the RC522, or the module lying against something metallic.</p>
+      </div>
+
+      <div class="check">
+        <h3><span class="n">5.3</span>Does your transceiver echo?</h3>
+        <p>Some auto-direction transceivers leave the receiver enabled while driving the line, so every byte you transmit arrives straight back on RX.</p>
+        <p><strong>This is not fatal either way.</strong> The OSDP library filters frames by direction, so it recognises its own replies as replies and drops them. Echo costs some wasted buffer churn, nothing more.</p>
+        <p>But if you would rather not have it, find out which kind of board you have. With the SH-U12 wired and A/B going nowhere, add this to <code>app_main()</code> temporarily:</p>
+        <pre><code>const char *probe = "ECHO?";
+uart_write_bytes(BOARD_RS485_UART, probe, strlen(probe));
+uart_wait_tx_done(BOARD_RS485_UART, pdMS_TO_TICKS(100));
+uint8_t back[16];
+int n = uart_read_bytes(BOARD_RS485_UART, back, sizeof(back),
+                        pdMS_TO_TICKS(50));
+ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
+        <p><code>got 5 bytes back</code> means your board echoes. <code>got 0 bytes back</code> means it does not. To suppress an echo you actually measured:</p>
+        <pre><code>idf.py menuconfig
+  → OpenReader
+    → [*] Discard local echo of transmitted bytes</code></pre>
+        <div class="callout danger">
+          <span class="label">Only if the probe showed an echo</span>
+          <p>If the board does not echo and suppression is on, it will eat the first bytes of every command the panel sends, and your reader will never answer a poll.</p>
+        </div>
+      </div>
+
+      <div class="check">
+        <h3><span class="n">5.4</span>The panel polls you</h3>
+        <p>Connect A, B and ground. Set the panel to poll address 0 at 9600 baud — or change the reader to match, under <code>menuconfig → OpenReader → OSDP PD address</code>.</p>
+        <p>The RGB LED stops breathing blue the moment the first poll is answered:</p>
+        <pre><code><span class="log-ok">I</span> (18420) osdp: link online</code></pre>
+        <p>No panel yet? The OSDP-Embedded repo ships <code>osdp-acu-mock</code>, which drives a PD from a PC serial port — the fastest way to test a reader without a panel on the desk.</p>
+        <p>Then present a card. The panel should report the credential.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">06</div>
+    <h2>When it does not work</h2>
+    <div class="sec-body">
+      <div class="tw">
+        <table>
+          <thead><tr><th>Symptom</th><th>Most likely cause</th></tr></thead>
+          <tbody>
+            <tr><td>LED breathes blue forever; panel reports the device offline</td><td>Address or baud mismatch. A and B swapped.</td></tr>
+            <tr><td>Panel sees garbage, or intermittent frames</td><td>Missing or doubled 120 Ω termination. A/B not on the same twisted pair. No common ground.</td></tr>
+            <tr><td><code>VersionReg=0x00</code> at boot</td><td>RC522 CS on the wrong pin, or MISO/MOSI swapped.</td></tr>
+            <tr><td>Card reads on the bench, not in the enclosure</td><td>Metal near the antenna, or the RC522 mounted too far behind a thick faceplate.</td></tr>
+            <tr><td>ESP32-C6 resets when the bus is connected</td><td>The 5 V TXD reached a GPIO. Check step 02 — the pin may already be damaged.</td></tr>
+            <tr><td>Reads work, but the panel never sees the card</td><td>The PD went offline between the read and the next poll. Queued credentials are discarded on a comms loss <em>by design</em> — spec 7.11/7.12.</td></tr>
+            <tr><td>Nothing at all after fitting the divider</td><td>Divider on the wrong pin. It belongs on <span class="pin">TXD</span> (transceiver → MCU), never on <span class="pin">RXD</span>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────────────── -->
+<section>
+  <div class="sec-head">
+    <div class="step">07</div>
+    <h2>Beyond the bench</h2>
+    <div class="sec-body">
+      <h3>Secure Channel</h3>
+      <p>As shipped, this reader speaks clear text. On a real installation that means anyone with access to the cable can watch a credential go by and replay it. The firmware is one crypto binding away from SC1 (AES-128) — mbedTLS ships with ESP-IDF, backed by the chip's AES accelerator, and <code>esp_fill_random()</code> is a true hardware RNG.</p>
+      <p><strong>Do this before you trust it with a door.</strong></p>
+
+      <h3>Enclosure and tamper</h3>
+      <p>The firmware reports tamper as permanently normal, because a bare dev board has no tamper switch. A reader in a wall box should have one, wired to a spare GPIO. The panel asks; give it a true answer.</p>
+
+      <h3>The credential itself</h3>
+      <p>A MIFARE Classic UID is not a secret. It is readable by anyone with a phone and clonable with commodity hardware. This reader reports the UID, which is the right thing for a reader to do — deciding whether a UID is sufficient authentication for a given door belongs to the access control system, not to the reader.</p>
+      <p>If it isn't sufficient, the answer is a credential that authenticates cryptographically — DESFire, SEOS, or a mobile credential — not a change to this firmware.</p>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <h2>Sources</h2>
+  <ul>
+    <li><a href="https://docs.waveshare.com/ESP32-C6-LCD-1.47">Waveshare ESP32-C6-LCD-1.47 documentation</a></li>
+    <li><a href="https://www.deshide.com/product-details_SH-U12.html">DSD TECH SH-U12 product page</a></li>
+    <li>OSDP-Embedded <code>docs/PD_GUIDE.md</code> — the PD library integration guide</li>
+  </ul>
+</footer>
+
+</div>
+</body>
+</html>
