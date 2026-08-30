@@ -11,6 +11,7 @@
 #include "rs485.h"
 #include "rc522.h"
 #include "display.h"
+#include "buzzer.h"
 #include "osdp_reader.h"
 #include "status_led.h"
 
@@ -132,6 +133,12 @@ void app_main(void)
     ESP_LOGI(TAG, "OpenReader starting");
 
     ESP_ERROR_CHECK(status_led_init());
+#if CONFIG_OPENREADER_BUZZER
+    /* Before anything else can command it, and before the OSDP task starts:
+     * buzzer_init leaves the pin at its silent level, which on an
+     * active-low part is not the state gpio_config would have left it in. */
+    ESP_ERROR_CHECK(buzzer_init());
+#endif
 #if defined(BOARD_SPI_HOST)
     ESP_ERROR_CHECK(spi_bus_init());
 #endif

@@ -3,6 +3,7 @@ idf_component_register(
          "rs485.c"
          "rc522.c"
          "status_led.c"
+         "buzzer.c"
          "display.c"
          "osdp_reader.c"
     INCLUDE_DIRS "."

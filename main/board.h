@@ -106,6 +106,15 @@
  * driver polls anyway, so nothing is lost. */
 #define BOARD_RC522_IRQ     (-1)
 
+/* Audible output — an active sounder, one pin.
+ *
+ * GPIO18 is the last genuinely free pin on this header. Everything else is
+ * spoken for: GP0/GP1 the RS-485 pair, GP2/3/19/20/23 the RC522, GP4 the SD
+ * chip select, GP5 and GP9 strapping pins, GP12/13 the USB data lines, and
+ * GP16/17 the debug console. If you need this pin for something else, the
+ * console on GP16/17 is the only other candidate worth giving up. */
+#define BOARD_BUZZER        18
+
 /* ---- Who owns hardware SPI2 --------------------------------------------
  *
  * SPI2 is the ESP32-C6's only general-purpose SPI master and a host has
@@ -174,6 +183,28 @@
  || BOARD_RS485_RX == BOARD_LCD_CS   || BOARD_RS485_RX == BOARD_LCD_DC   \
  || BOARD_RS485_RX == BOARD_LCD_RST  || BOARD_RS485_RX == BOARD_LCD_BL
 #error "RS-485 GPIO collides with an onboard LCD pin"
+#endif
+#endif
+
+#if CONFIG_OPENREADER_BUZZER
+#if BOARD_PIN_IS_USB(BOARD_BUZZER)
+#error "Buzzer pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
+#endif
+#if BOARD_BUZZER == BOARD_RS485_TX || BOARD_BUZZER == BOARD_RS485_RX
+#error "Buzzer GPIO collides with an RS-485 pin"
+#endif
+#if CONFIG_OPENREADER_DISPLAY
+#if BOARD_BUZZER == BOARD_LCD_SCLK || BOARD_BUZZER == BOARD_LCD_MOSI  || BOARD_BUZZER == BOARD_LCD_CS   || BOARD_BUZZER == BOARD_LCD_DC    || BOARD_BUZZER == BOARD_LCD_RST  || BOARD_BUZZER == BOARD_LCD_BL
+#error "Buzzer GPIO collides with an onboard LCD pin"
+#endif
+#endif
+#if CONFIG_OPENREADER_RC522
+#if BOARD_BUZZER == BOARD_RC522_SCLK || BOARD_BUZZER == BOARD_RC522_MOSI  || BOARD_BUZZER == BOARD_RC522_MISO || BOARD_BUZZER == BOARD_RC522_CS    || BOARD_BUZZER == BOARD_RC522_RST
+#error "Buzzer GPIO collides with an RC522 pin"
+#endif
+#endif
+#if BOARD_BUZZER == BOARD_RGB_LED
+#error "Buzzer GPIO collides with the onboard WS2812"
 #endif
 #endif
 

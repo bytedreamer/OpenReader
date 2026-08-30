@@ -49,6 +49,7 @@ comparatively simple device to build.
 | 5 | **120 Ω resistor**, ¼ W | RS-485 bus termination, if your reader is at the physical end of the bus. | — |
 | 6 | Jumper wires (female–female), or perfboard and wire | Bench wiring. | $3 |
 | 7 | USB-C cable | Power, flashing and the serial console, all on the one cable. | — |
+| 8 | **Active buzzer module**, 3.3 V, three-pin *(optional)* | Gives the reader a voice for `osdp_BUZ`. “Active” means it makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM. A bare passive piezo also works but wants a driven waveform. | $2 |
 
 For a permanent install you will also want shielded twisted-pair cable
 (22–24 AWG, e.g. Belden 3105A or equivalent) and a 12 V supply with a buck
@@ -296,6 +297,47 @@ ground return between the boards will misread before either rate does.
 
 The RC522's `SDA` pin is a chip select, not I²C data. The silkscreen is
 misleading and it catches almost everyone once.
+
+### Audible output — active buzzer (optional)
+
+Only worth wiring if you want the reader to answer `osdp_BUZ`. Everything
+above works without it.
+
+| Buzzer pin | ESP32-C6 GPIO | Note |
+| ---------- | ------------- | ---- |
+| `VCC` / `+` | 3.3 V | A 3.3 V part. Some modules are 5 V — check yours |
+| `GND` / `-` | GND | |
+| `I/O` / `S` | GPIO18 (header `GP18`) | The last free pin on the header |
+
+GPIO18 is genuinely the last one going spare. GP0/GP1 are the RS-485 pair,
+GP2/3/19/20/23 the RC522, GP4 the SD chip select, GP5 and GP9 are strapping
+pins, GP12/13 are the USB data lines, and GP16/17 are the debug console. If
+you need GP18 for something else, that console is the only other candidate
+worth giving up.
+
+Then turn it on — it is off by default:
+
+```
+idf.py menuconfig    # OpenReader → Audible output — active sounder on GPIO18
+```
+
+Off is the honest default rather than a cautious one. Enabling it also makes
+`osdp_CAP` report an audible output, and an ACU told a reader can beep will
+command beeps and has no way to discover they never happened. Claim the
+sounder when the sounder exists.
+
+If it shrieks continuously from boot and falls silent only when the ACU
+commands a beep, the module is active low — there is a second option
+directly beneath the first for that. The firmware drives the pin to its
+silent level before anything else runs, so a correctly configured board is
+quiet from power-up.
+
+You do not need to write any beep logic. The PD library decodes `osdp_BUZ`
+and resolves its `on_time`/`off_time`/`count` pattern over time, calling the
+firmware on each edge; the reader just switches the pin. The sounder is also
+silenced whenever the OSDP link drops, because `osdp_BUZ` can command a
+continuous pattern and a reader that lost comms mid-beep would otherwise
+sound until someone unplugged it.
 
 ### Already on the board — nothing to wire
 

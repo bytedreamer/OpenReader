@@ -874,6 +874,28 @@ pre code { background: none; padding: 0; font-size: inherit; }
 
       <p>Keep the leads short. Neither bus is fussy — hardware SPI2 runs them at 5&nbsp;MHz and the bit-banged bus at roughly 500&nbsp;kHz, both far under the MFRC522's 10&nbsp;MHz ceiling — but long unshielded jumpers with no solid ground return between the boards will misread before either rate does.</p>
 
+      <h3>Audible output — active buzzer (optional)</h3>
+
+      <p>Only worth wiring if you want the reader to answer <code>osdp_BUZ</code>. Everything above works without it. “Active” means the module makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Audible output — active buzzer (optional)</caption>
+          <thead><tr><th>Buzzer pin</th><th>ESP32-C6</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pin">VCC</span> / <span class="pin">+</span></td><td>3.3 V</td><td>A 3.3 V part — some modules are 5 V, check yours</td></tr>
+            <tr><td><span class="pin">GND</span> / <span class="pin">-</span></td><td>GND</td><td></td></tr>
+            <tr><td><span class="pin">I/O</span> / <span class="pin">S</span></td><td>GPIO18</td><td>The last free pin on the header</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Then turn it on, because it is off by default: <code>idf.py menuconfig</code> → OpenReader → <em>Audible output</em>. Off is the honest default rather than a cautious one — enabling it also makes <code>osdp_CAP</code> report an audible output, and an ACU told a reader can beep will command beeps and has no way to discover they never happened. Claim the sounder when the sounder exists.</p>
+
+      <p>If it shrieks continuously from boot and goes quiet only when the ACU commands a beep, the module is active low; there is a second option directly beneath the first for that. The firmware drives the pin to its silent level before anything else runs, so a correctly configured board is quiet from power-up.</p>
+
+      <p>No beep logic is needed. The PD library decodes <code>osdp_BUZ</code> and resolves its on/off/count pattern over time, calling the firmware on each edge — the reader just switches the pin. It is also silenced whenever the OSDP link drops, because <code>osdp_BUZ</code> can command a continuous pattern and a reader that lost comms mid-beep would otherwise sound until someone unplugged it.</p>
+
       <div class="tw">
         <table>
           <caption>Already on the board — nothing to wire</caption>

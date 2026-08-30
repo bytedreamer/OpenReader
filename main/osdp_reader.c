@@ -2,6 +2,7 @@
 #include "rs485.h"
 #include "status_led.h"
 #include "display.h"
+#include "buzzer.h"
 
 #include "osdp/osdp_pd.h"
 #include "osdp/osdp_commands.h"
@@ -129,13 +130,19 @@ static void bind_pdcap(void)
             records[i].num_objects      = 0;
             break;
 
+#if !CONFIG_OPENREADER_BUZZER
         case PDCAP_FN_AUDIBLE_OUTPUT:
-            /* No buzzer on this board. We still accept and decode osdp_BUZ
-             * (the library does it for us) but there is nothing to sound,
-             * so claiming one would be a lie the ACU might act on. */
+            /* No sounder fitted in this build. osdp_BUZ is still accepted
+             * and decoded (the library does it for us) but there is nothing
+             * to make a noise, so claiming one would be a lie the ACU might
+             * act on. With CONFIG_OPENREADER_BUZZER the template's own value
+             * stands: compliance level 2, "timed commands supported", which
+             * is honest because the library really does resolve the
+             * on/off/count pattern. */
             records[i].compliance_level = 0;
             records[i].num_objects      = 0;
             break;
+#endif
 
         case PDCAP_FN_READER_LED:
             /* One LED on the reader head. The template's compliance level
@@ -325,11 +332,19 @@ static void buzzer_handler(void *user, uint8_t reader_no, bool sounding,
 {
     (void)user;
     (void)reader_no;
+    /* tone is deliberately ignored. osdp_BUZ defines two codes — 0x01 off
+     * and 0x02 default tone — and an active sounder has exactly one noise
+     * in it, so there is nothing here to choose between. `sounding` already
+     * folds in the off code. */
     (void)tone;
-    /* No sounder on this board. Logged at debug so a builder adding a
-     * piezo can see the pattern edges the library is already resolving for
-     * them — the wiring is all that is missing. */
+
+#if CONFIG_OPENREADER_BUZZER
+    buzzer_set_osdp(sounding);
+#else
+    /* Logged at debug so a builder can watch the pattern edges the library
+     * is already resolving before committing to the part. */
     ESP_LOGD(TAG, "buzzer %s", sounding ? "on" : "off");
+#endif
 }
 
 static void status_local(void *user, uint8_t *tamper, uint8_t *power)
@@ -601,6 +616,9 @@ void osdp_reader_run(void)
             ESP_LOGI(TAG, "link %s", online ? "online" : "offline");
             status_led_set_link(online);
             display_set_link(online);
+#if CONFIG_OPENREADER_BUZZER
+            buzzer_set_link(online);
+#endif
             if (online) {
                 announce_restart();
             } else {

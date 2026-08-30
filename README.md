@@ -73,6 +73,7 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | Reader face on the LCD | on | The virtual reader; owns hardware SPI2 when built |
 | MFRC522 card reader | on | Turn off for a display-only or bus-only build |
 | How the RC522 is clocked | bit-banged | Software SPI, so the panel keeps SPI2. See below |
+| Audible output | off | An active sounder on GPIO18. Enabling it also makes `osdp_CAP` claim one |
 | Discard local echo | off | Only enable if your transceiver echoes — [HARDWARE.md §8.3](docs/HARDWARE.md) |
 | Card repeat window | 2000 ms | Suppresses re-reads of a card left on the antenna |
 | PD serial number | 1 | Give each unit on a bus a distinct value |

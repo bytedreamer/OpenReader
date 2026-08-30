@@ -69,6 +69,30 @@ menu "OpenReader"
 
     endchoice
 
+    config OPENREADER_BUZZER
+        bool "Audible output — active sounder on GPIO18"
+        default n
+        help
+            Drives an active buzzer from osdp_BUZ. "Active" means the part
+            makes its own tone, so the pin is simply on or off; the library
+            resolves the command's on/off/count pattern and hands the reader
+            the edges.
+
+            Default off, and deliberately so: enabling this also makes
+            osdp_CAP report an audible output, and claiming a sounder that
+            is not fitted is a lie the ACU may act on — it will command
+            beeps that never happen and have no way to find out. Turn it on
+            when the part is actually on the header.
+
+    config OPENREADER_BUZZER_ACTIVE_LOW
+        bool "The sounder sounds when the pin is LOW"
+        depends on OPENREADER_BUZZER
+        default n
+        help
+            Cheap three-pin modules disagree about polarity. If yours
+            shrieks from boot and goes quiet only when the ACU commands a
+            beep, it is active low — set this.
+
     config OPENREADER_RS485_TX_GPIO
         int "RS-485 UART TX GPIO (to the transceiver's RXD)"
         default 0
