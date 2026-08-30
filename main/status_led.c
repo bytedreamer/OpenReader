@@ -14,29 +14,52 @@ static led_strip_handle_t s_strip;
 static bool     s_online;
 static uint8_t  s_osdp_color = OSDP_LED_BLACK;
 
-/* Kept dim on purpose. The WS2812 on this board is bright enough at full
- * scale to be unpleasant at a door, and a reader LED is a status indicator,
- * not illumination. */
-#define LED_LEVEL 40U
+/* Full scale, because this build is a demo that has to read across a room.
+ *
+ * A reader mounted at a door wants this lower — the WS2812 is genuinely
+ * unpleasant at full brightness up close, and a reader LED is a status
+ * indicator rather than illumination; 40 was that judgement. Every colour
+ * below is mixed proportionally to this, so amber stays amber and the
+ * offline breath keeps its ramp wherever it is set. */
+#define LED_LEVEL 255U
 
+/* The one place a colour reaches the hardware — and the one place the
+ * board's byte order is corrected, by handing the driver red and green
+ * swapped.
+ *
+ * Measured, not assumed. With the strip declared GRB, an ACU commanding
+ * green (osdp_LED colour 2, resolved here to r=0 g=40 b=0) lit the pixel
+ * red: GRB puts the green argument out as the first byte on the wire, and
+ * this part reads its first byte as red. So the pixel is RGB-ordered while
+ * the driver can only speak GRB — led_strip 2.5.5 offers GRB and GRBW and
+ * no way to say otherwise. Swapping the two arguments here puts the right
+ * byte in the right slot and costs nothing.
+ *
+ * What this bug looks like if it ever comes back on another board
+ * revision: red and green trade places, and so do cyan and magenta, while
+ * blue, white and off stay correct — which is exactly why a quick sweep
+ * through the colours can look like it passed. */
 static void paint(uint8_t r, uint8_t g, uint8_t b)
 {
     if (s_strip == NULL) {
         return;
     }
-    (void)led_strip_set_pixel(s_strip, 0, r, g, b);
+    (void)led_strip_set_pixel(s_strip, 0, g, r, b);
     (void)led_strip_refresh(s_strip);
 }
 
 esp_err_t status_led_init(void)
 {
-    /* Field names here are the led_strip 2.x API, which is what the caret
-     * pin in idf_component.yml resolves to. The 3.x line renamed
-     * led_pixel_format to color_component_format — if you ever widen that
-     * pin, this struct is the thing that breaks. */
     const led_strip_config_t strip_cfg = {
         .strip_gpio_num   = BOARD_RGB_LED,
         .max_leds         = 1,
+        /* GRB is the only non-white order this component offers (2.5.5
+         * has GRB and GRBW and nothing else), and it does not match this
+         * board's pixel — paint() below corrects for that. Field names
+         * here are the led_strip 2.x API, which is what the caret pin in
+         * idf_component.yml resolves to; the 3.x line renamed
+         * led_pixel_format to color_component_format, and if you ever
+         * widen that pin this struct is the thing that breaks. */
         .led_pixel_format = LED_PIXEL_FORMAT_GRB,
         .led_model        = LED_MODEL_WS2812,
     };

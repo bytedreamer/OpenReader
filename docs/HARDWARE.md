@@ -400,6 +400,14 @@ are soldered to the panel and reach no header, so the LCD is the one
 peripheral here whose bus cannot be moved — which is why, when both are
 built, it keeps hardware SPI2 and the RC522 is the one clocked in software.
 
+**The WS2812 on this board is RGB-ordered, not the GRB nearly every WS2812
+datasheet specifies.** Measured on the bench: with the strip declared GRB,
+an ACU commanding green lit the pixel red. `led_strip` 2.5.5 offers only
+GRB and GRBW, so the firmware corrects for it in one place — `paint()` in
+`main/status_led.c` hands the driver red and green swapped. If a board
+revision ever arrives with the orthodox order, that is the line to change;
+§9 says what the symptom looks like.
+
 ---
 
 ## 6. The RS-485 bus itself
@@ -568,6 +576,12 @@ the log says:
 I (18420) osdp: link online
 ```
 
+From then on the LED belongs to the ACU: it shows whatever the last
+`osdp_LED` commanded, and nothing at all until one arrives — an online
+reader whose panel never commands a colour sits dark, which is correct and
+looks alarming the first time. The LCD is the one that keeps saying
+`ONLINE` regardless.
+
 If you have no panel yet, the OSDP-Embedded repo ships `osdp-acu-mock`,
 which drives a PD from a PC serial port — the fastest way to test a reader
 without a panel on the desk. See its README.
@@ -590,6 +604,8 @@ logs the read as it hands it to the OSDP task.
 | Nothing at all after wiring the divider | Divider fitted to the wrong pin — it belongs on TXD (transceiver → MCU), never on RXD |
 | Tamper reported permanently, nothing wired to `GP4` | The tamper option is enabled with no switch fitted; the pull-up reads the open pin as tamper |
 | Tamper inverted — normal when open, tamper when shut | Normally-open switch; set the active-low option (§5.3) |
+| LED colours swapped — grant shows red, deny shows green | The pixel's byte order. Red/green and cyan/magenta trade places while blue, white and off look correct — see the note in §5. A colour sweep can appear to pass |
+| Reader online, LED dark | Correct: the ACU owns the LED once the link is up and has commanded no colour. The LCD still reads `ONLINE` |
 | Buzzer clicks once and goes silent | It is a passive buzzer. The firmware drives a static level, not a waveform — you need an active one (§5.2) |
 
 ---
@@ -606,6 +622,12 @@ door.
 default and unwired on a bench build, in which case the reader still answers
 "normal" to every `osdp_LSTAT`. A reader in a wall box should have the switch
 fitted and the option turned on. The ACU asks; give it a true answer.
+
+**LED brightness.** `LED_LEVEL` in `main/status_led.c` is at full scale
+(255), which is what a demo on a desk wants and more than a reader at a door
+does — the WS2812 is genuinely unpleasant close up at that level. Turn it
+down for an installed unit; every colour is mixed proportionally to it, so
+amber stays amber and the offline breath keeps its ramp wherever it is set.
 
 **The credential itself.** A MIFARE Classic UID is not a secret — it is
 readable by anyone with a phone and clonable with commodity hardware. This
