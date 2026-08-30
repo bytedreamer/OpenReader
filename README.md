@@ -40,6 +40,8 @@ when something is wrong. Two formats, same content:
 | ⬜ | **Secure Channel** — see below. Do not deploy without it |
 | ✅ | LCD reader face — colour disc mirroring the LED, address, link state, card panel |
 | ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
+| ✅ | Restart reported to the ACU on the first poll (unsolicited `osdp_LSTATR`) |
+| ⬜ | Audible output — `osdp_BUZ` is decoded and its pattern resolved; only the sounder is missing |
 | ⬜ | Tamper switch input |
 
 ## Building
