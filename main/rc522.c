@@ -54,30 +54,135 @@ static const char *TAG = "rc522";
  * longer and continues at the next level. */
 #define UID_CASCADE_TAG    0x88U
 
+/* ---- Bus ---------------------------------------------------------------
+ *
+ * Every exchange with the MFRC522 is exactly two bytes — an address byte
+ * then a data byte — so the whole bus dependency is one function. Which
+ * makes the choice between hardware SPI2 and a bit-banged bus a swap of
+ * that function rather than a second driver: everything above it, the
+ * register map and the 14443-A state machine, is shared.
+ *
+ * The bit-banged path exists because SPI2 is the C6's only general-purpose
+ * SPI master and the LCD cannot be moved off it (board.h). Clocking the
+ * RC522 in software is what lets the panel and the reader run together. */
+
+#if CONFIG_OPENREADER_RC522_HW_SPI
+
+static const char *const BUS_NAME = "hardware SPI2";
+
 static spi_device_handle_t s_spi;
 
-/* ---- Register access ---------------------------------------------------- */
-
-static esp_err_t reg_write(uint8_t reg, uint8_t val)
+static esp_err_t xfer2(const uint8_t tx[2], uint8_t rx[2])
 {
-    uint8_t tx[2] = { (uint8_t)(reg & 0x7EU), val };
-    spi_transaction_t t = {
-        .length    = 16,
-        .tx_buffer = tx,
-    };
-    return spi_device_polling_transmit(s_spi, &t);
-}
-
-static esp_err_t reg_read(uint8_t reg, uint8_t *val)
-{
-    uint8_t tx[2] = { (uint8_t)(0x80U | (reg & 0x7EU)), 0x00U };
-    uint8_t rx[2] = { 0 };
     spi_transaction_t t = {
         .length    = 16,
         .tx_buffer = tx,
         .rx_buffer = rx,
     };
-    esp_err_t err = spi_device_polling_transmit(s_spi, &t);
+    return spi_device_polling_transmit(s_spi, &t);
+}
+
+static esp_err_t bus_init(void)
+{
+    /* 5 MHz: comfortably inside the MFRC522's 10 MHz ceiling and slow
+     * enough to tolerate the jumper wires most people will use. */
+    const spi_device_interface_config_t dev = {
+        .clock_speed_hz = 5 * 1000 * 1000,
+        .mode           = 0,
+        .spics_io_num   = BOARD_RC522_CS,
+        .queue_size     = 1,
+    };
+    return spi_bus_add_device(BOARD_SPI_HOST, &dev, &s_spi);
+}
+
+#else /* CONFIG_OPENREADER_RC522_SOFT_SPI */
+
+static const char *const BUS_NAME = "bit-banged SPI";
+
+/* Half a clock period. One microsecond puts the bus near 500 kHz — two
+ * orders of magnitude under the part's ceiling, and deliberately so: these
+ * are jumper wires, and the entire cost is a few dozen register accesses
+ * ten times a second. Raising the rate would buy microseconds nobody is
+ * waiting for. */
+#define SOFT_SPI_HALF_US 1
+
+/* SPI mode 0, MSB first: clock idles low, the slave samples MOSI on the
+ * rising edge, and the master samples MISO on that same edge. */
+static uint8_t soft_xfer_byte(uint8_t out)
+{
+    uint8_t in = 0;
+    for (int bit = 7; bit >= 0; bit--) {
+        gpio_set_level(BOARD_RC522_MOSI, (out >> bit) & 1U);
+        esp_rom_delay_us(SOFT_SPI_HALF_US);
+        gpio_set_level(BOARD_RC522_SCLK, 1);
+        if (gpio_get_level(BOARD_RC522_MISO)) {
+            in |= (uint8_t)(1U << bit);
+        }
+        esp_rom_delay_us(SOFT_SPI_HALF_US);
+        gpio_set_level(BOARD_RC522_SCLK, 0);
+    }
+    return in;
+}
+
+static esp_err_t xfer2(const uint8_t tx[2], uint8_t rx[2])
+{
+    /* CS framing is ours here, where the hardware path gets it from
+     * spics_io_num. The MFRC522 latches the address on the first byte of a
+     * transaction, so CS must stay low across both bytes — dropping it
+     * between them would restart the address phase. */
+    gpio_set_level(BOARD_RC522_CS, 0);
+    esp_rom_delay_us(SOFT_SPI_HALF_US);
+
+    uint8_t b0 = soft_xfer_byte(tx[0]);
+    uint8_t b1 = soft_xfer_byte(tx[1]);
+
+    esp_rom_delay_us(SOFT_SPI_HALF_US);
+    gpio_set_level(BOARD_RC522_CS, 1);
+
+    if (rx != NULL) {
+        rx[0] = b0;
+        rx[1] = b1;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t bus_init(void)
+{
+    const gpio_config_t out = {
+        .pin_bit_mask = (1ULL << BOARD_RC522_SCLK) |
+                        (1ULL << BOARD_RC522_MOSI) |
+                        (1ULL << BOARD_RC522_CS),
+        .mode         = GPIO_MODE_OUTPUT,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&out), TAG, "soft spi outputs");
+
+    const gpio_config_t in = {
+        .pin_bit_mask = 1ULL << BOARD_RC522_MISO,
+        .mode         = GPIO_MODE_INPUT,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&in), TAG, "soft spi miso");
+
+    /* Idle state before anything is clocked: CS released, clock low. */
+    gpio_set_level(BOARD_RC522_CS, 1);
+    gpio_set_level(BOARD_RC522_SCLK, 0);
+    return ESP_OK;
+}
+
+#endif
+
+/* ---- Register access ---------------------------------------------------- */
+
+static esp_err_t reg_write(uint8_t reg, uint8_t val)
+{
+    const uint8_t tx[2] = { (uint8_t)(reg & 0x7EU), val };
+    return xfer2(tx, NULL);
+}
+
+static esp_err_t reg_read(uint8_t reg, uint8_t *val)
+{
+    const uint8_t tx[2] = { (uint8_t)(0x80U | (reg & 0x7EU)), 0x00U };
+    uint8_t rx[2] = { 0 };
+    esp_err_t err = xfer2(tx, rx);
     if (err == ESP_OK) {
         *val = rx[1];
     }
@@ -362,22 +467,23 @@ static esp_err_t antenna_on(void)
  * failure path, where init is about to give up. */
 static void diagnose_silent_bus(void)
 {
-    gpio_set_pull_mode(BOARD_SPI_MISO, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(BOARD_RC522_MISO, GPIO_PULLUP_ONLY);
     esp_rom_delay_us(1000);
 
     uint8_t pulled = 0;
     esp_err_t err = reg_read(REG_VERSION, &pulled);
 
-    gpio_set_pull_mode(BOARD_SPI_MISO, GPIO_FLOATING);
+    gpio_set_pull_mode(BOARD_RC522_MISO, GPIO_FLOATING);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "diagnostic read failed: %s", esp_err_to_name(err));
         return;
     }
 
-    ESP_LOGE(TAG, "pins: SCLK=%d MOSI=%d MISO=%d CS=%d RST=%d",
-             BOARD_SPI_SCLK, BOARD_SPI_MOSI, BOARD_SPI_MISO,
-             BOARD_RC522_CS, BOARD_RC522_RST);
+    ESP_LOGE(TAG, "pins: SCLK=%d MOSI=%d MISO=%d CS=%d RST=%d (%s)",
+             BOARD_RC522_SCLK, BOARD_RC522_MOSI, BOARD_RC522_MISO,
+             BOARD_RC522_CS, BOARD_RC522_RST,
+             BUS_NAME);
 
     if (pulled == 0xFFU) {
         ESP_LOGE(TAG, "MISO floats to the internal pull-up (0x%02X): nothing "
@@ -385,12 +491,12 @@ static void diagnose_silent_bus(void)
                       "the module has 3.3 V, and that CS lands on GPIO%d — "
                       "an unselected module leaves MISO high-Z and looks "
                       "identical to a cut wire.",
-                      pulled, BOARD_SPI_MISO, BOARD_RC522_CS);
+                      pulled, BOARD_RC522_MISO, BOARD_RC522_CS);
     } else if (pulled == 0x00U) {
         ESP_LOGE(TAG, "MISO stays low against the internal pull-up: "
                       "something drives it low. Look for a short to ground "
                       "on GPIO%d, or the module fed 5 V instead of 3.3 V.",
-                      BOARD_SPI_MISO);
+                      BOARD_RC522_MISO);
     } else {
         ESP_LOGE(TAG, "MISO answered 0x%02X with the pull-up on: the link is "
                       "marginal rather than dead. Suspect long or unshielded "
@@ -400,18 +506,7 @@ static void diagnose_silent_bus(void)
 
 esp_err_t rc522_init(void)
 {
-    /* 5 MHz: comfortably inside the MFRC522's 10 MHz ceiling and slow
-     * enough to tolerate the jumper wires most people will use. The LCD
-     * shares this bus but keeps its own, much higher, clock — the IDF SPI
-     * master reprograms the divider per device. */
-    const spi_device_interface_config_t dev = {
-        .clock_speed_hz = 5 * 1000 * 1000,
-        .mode           = 0,
-        .spics_io_num   = BOARD_RC522_CS,
-        .queue_size     = 1,
-    };
-    ESP_RETURN_ON_ERROR(spi_bus_add_device(BOARD_SPI_HOST, &dev, &s_spi),
-                        TAG, "spi add");
+    ESP_RETURN_ON_ERROR(bus_init(), TAG, "bus");
 
     /* Hard reset via RST when it is wired; the soft reset below covers the
      * case where it is not. */
@@ -456,7 +551,7 @@ esp_err_t rc522_init(void)
         diagnose_silent_bus();
         return ESP_ERR_NOT_FOUND;
     }
-    ESP_LOGI(TAG, "MFRC522 online, VersionReg=0x%02X", version);
+    ESP_LOGI(TAG, "MFRC522 online, VersionReg=0x%02X (%s)", version, BUS_NAME);
     return ESP_OK;
 }
 

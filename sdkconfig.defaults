@@ -36,9 +36,12 @@ CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 CONFIG_OPENREADER_RS485_TX_GPIO=0
 CONFIG_OPENREADER_RS485_RX_GPIO=1
 
-# --- What SPI2 drives -------------------------------------------------------
-# The C6 has one general-purpose SPI master and a host has one set of bus
-# pins, so the onboard LCD (fixed on GPIO7/6) and an external RC522 (header
-# pins) cannot both be built. Stated here rather than left to the Kconfig
-# default so the shipped configuration is visible in the tree.
-CONFIG_OPENREADER_SPI2_LCD=y
+# --- Display and card reader ------------------------------------------------
+# Both, which is only possible because the RC522 is clocked in software: the
+# C6 has one general-purpose SPI master, and the LCD's clock and data are
+# soldered to GPIO7/6 where they cannot be moved off it. Stated here rather
+# than left to the Kconfig defaults so the shipped configuration is visible
+# in the tree.
+CONFIG_OPENREADER_DISPLAY=y
+CONFIG_OPENREADER_RC522=y
+CONFIG_OPENREADER_RC522_SOFT_SPI=y

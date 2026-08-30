@@ -13,9 +13,10 @@
  * frame is 110 KB over SPI, and the OSDP task cannot afford to sit behind
  * it. Nothing on the bus path ever blocks on the screen.
  *
- * The panel shares SPI2 with nothing: on this board the LCD and an external
- * RC522 are mutually exclusive, chosen by CONFIG_OPENREADER_SPI2_*. See
- * board.h.
+ * The panel has hardware SPI2 to itself. It is the one peripheral here that
+ * cannot be moved — its clock and data are soldered to GPIO7/6 — so when the
+ * display is built it owns the host, and an RC522 alongside it is clocked in
+ * software instead (CONFIG_OPENREADER_RC522_BUS). See board.h.
  */
 #ifndef DISPLAY_H
 #define DISPLAY_H

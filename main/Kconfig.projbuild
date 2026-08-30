@@ -17,36 +17,55 @@ menu "OpenReader"
             115200 and 230400. 9600 is the spec's mandatory default and the
             right choice for first bring-up.
 
-    choice OPENREADER_SPI2_PERIPHERAL
-        prompt "What SPI2 drives"
-        default OPENREADER_SPI2_LCD
+    config OPENREADER_DISPLAY
+        bool "Show the reader face on the onboard LCD"
+        default y
         help
-            The ESP32-C6 has exactly one general-purpose SPI master, and an
-            SPI host has exactly one set of bus pins. The onboard LCD's
-            clock and data are fixed on-board at GPIO7 and GPIO6 and do not
-            reach the header, so an external RC522 cannot be put on the same
-            bus. One or the other.
+            Draws a virtual reader on the 1.47 inch ST7789: a colour disc
+            mirroring the WS2812 (the ACU's osdp_LED colour while the link
+            is up, the blue breath while it is down), the PD address, the
+            link state, and a card panel showing the last UID read.
 
-            Wanting both is reasonable and the way to get there is a
-            bit-banged SPI for the RC522 on spare header pins — it is driven
-            at 5 MHz today and would work fine at 1 — rather than a second
-            hardware host, because the part does not have one.
+            The panel is the only thing that must have hardware SPI2 — its
+            clock and data are fixed on-board at GPIO7 and GPIO6 and cannot
+            be moved. An RC522 on bit-banged SPI runs alongside it happily.
 
-    config OPENREADER_SPI2_LCD
-        bool "Onboard 1.47 inch LCD — show the reader face"
+    config OPENREADER_RC522
+        bool "External MFRC522 card reader"
+        default y
         help
-            Draws a virtual reader on the LCD: a colour disc mirroring the
-            WS2812 (so the ACU's osdp_LED colour, or the blue breath while
-            the link is down), the PD address, the link state and a card
-            panel. No card reader is built in this configuration, so the
-            card panel reads NO READER until you switch to the RC522.
+            Reads ISO/IEC 14443-A cards and reports each UID to the ACU as
+            osdp_RAW. Turn off for a display-only or bus-only build.
 
-    config OPENREADER_SPI2_RC522
-        bool "External MFRC522 — read real cards"
+    choice OPENREADER_RC522_BUS
+        prompt "How the RC522 is clocked"
+        depends on OPENREADER_RC522
+        default OPENREADER_RC522_SOFT_SPI
         help
-            The original configuration: SPI2 goes to header pins for an
-            MFRC522, and the LCD stays dark. Card reads are reported to the
-            ACU as osdp_RAW.
+            The ESP32-C6 has one general-purpose SPI master and an SPI host
+            has one set of bus pins. When the LCD is built it owns that
+            host, because the panel's pins are fixed and the RC522's are
+            ours to choose — so the RC522 is the one that gives way.
+
+            Giving way costs very little. The hardware path clocks at
+            5 MHz and the software path at roughly 500 kHz, but a card poll
+            is only a few dozen register accesses; at ten polls a second
+            the difference is well under a millisecond of CPU per second,
+            against an OSDP tick that must not be late by more than a few.
+
+    config OPENREADER_RC522_HW_SPI
+        bool "Hardware SPI2 — requires the LCD to be off"
+        depends on !OPENREADER_DISPLAY
+        help
+            SPI2 in hardware, on the RC522's header pins. Only selectable
+            with the display disabled, since the two cannot share the host.
+
+    config OPENREADER_RC522_SOFT_SPI
+        bool "Bit-banged SPI — runs alongside the LCD"
+        help
+            Clocks the RC522 in software on the same header pins, leaving
+            hardware SPI2 free for the panel. This is what lets the reader
+            face and real card reads coexist.
 
     endchoice
 

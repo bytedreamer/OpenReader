@@ -85,45 +85,58 @@
 #define BOARD_RS485_RX      CONFIG_OPENREADER_RS485_RX_GPIO  /* <- SH-U12 TXD,
                                                               * VIA THE DIVIDER */
 
-/* MFRC522 on its own SPI2 pins.
+/* MFRC522 on header pins of its own.
  *
  * It cannot share the LCD's bus: GPIO6/7 carry that clock and data and are
- * not brought out to the header. The ESP32-C6's GPIO matrix routes SPI2 to
- * any pins, so the RC522 gets header pins of its own instead. Routing
- * through the matrix rather than the dedicated IO_MUX pins lowers the
- * usable ceiling, but the RC522 runs at 5 MHz and the matrix is good for
- * well above that.
+ * not brought out to the header. These five are the RC522's regardless of
+ * how it is clocked — hardware SPI2 routes them through the GPIO matrix,
+ * the bit-banged driver toggles them directly — so the wiring is the same
+ * either way and switching CONFIG_OPENREADER_RC522_BUS needs no rework at
+ * the bench.
  *
  * GP4, GP5 and GP9 are avoided: they are strapping pins, and 4/5 are also
  * the SD slot's chip select and MISO. */
-/* SPI2 is the ESP32-C6's only general-purpose SPI master, and an SPI host
- * has exactly one set of bus pins. The LCD's are fixed on-board at GPIO7/6;
- * the RC522's would be header pins of our choosing. There is no arrangement
- * that serves both, so CONFIG_OPENREADER_SPI2_* picks one and these three
- * macros follow it.
- *
- * If you want the display and a real reader at the same time, the way out
- * is a bit-banged SPI for the RC522 on spare header pins — it runs at 5 MHz
- * here and would be perfectly happy at 1 — not a second hardware host,
- * because there isn't one. */
-#define BOARD_SPI_HOST      SPI2_HOST
-
-#if CONFIG_OPENREADER_SPI2_LCD
-#define BOARD_SPI_SCLK      BOARD_LCD_SCLK
-#define BOARD_SPI_MOSI      BOARD_LCD_MOSI
-#define BOARD_SPI_MISO      (-1)  /* the panel is write-only */
-#else
-#define BOARD_SPI_SCLK      2
-#define BOARD_SPI_MOSI      3
-#define BOARD_SPI_MISO      19  /* free while the UART sits on GP0/GP1.
+#define BOARD_RC522_SCLK    2
+#define BOARD_RC522_MOSI    3
+#define BOARD_RC522_MISO    19  /* free while the UART sits on GP0/GP1.
                                  * NEVER 12 or 13 — see the guard below. */
-#endif
-
 #define BOARD_RC522_CS      23
 #define BOARD_RC522_RST     20
 /* GPIO10 is not on this board's header, so there is no IRQ pin to use. The
  * driver polls anyway, so nothing is lost. */
 #define BOARD_RC522_IRQ     (-1)
+
+/* ---- Who owns hardware SPI2 --------------------------------------------
+ *
+ * SPI2 is the ESP32-C6's only general-purpose SPI master and a host has
+ * exactly one set of bus pins, so at most one peripheral can be on it.
+ *
+ * The LCD wins when it is built, and not by preference: its clock and data
+ * are soldered to GPIO7/6 and cannot be moved anywhere, whereas the RC522's
+ * pins are ours to pick. So the RC522 is the one that can give way, which
+ * it does by being clocked in software instead — see
+ * CONFIG_OPENREADER_RC522_BUS. That is what lets both run at once.
+ *
+ * BOARD_SPI_* is left undefined when nothing claims the host. */
+#if CONFIG_OPENREADER_DISPLAY
+#define BOARD_SPI_HOST      SPI2_HOST
+#define BOARD_SPI_SCLK      BOARD_LCD_SCLK
+#define BOARD_SPI_MOSI      BOARD_LCD_MOSI
+#define BOARD_SPI_MISO      (-1)  /* the panel is write-only */
+#elif CONFIG_OPENREADER_RC522_HW_SPI
+#define BOARD_SPI_HOST      SPI2_HOST
+#define BOARD_SPI_SCLK      BOARD_RC522_SCLK
+#define BOARD_SPI_MOSI      BOARD_RC522_MOSI
+#define BOARD_SPI_MISO      BOARD_RC522_MISO
+#endif
+
+/* Kconfig already makes this unselectable (the hardware-SPI option depends
+ * on the display being off). Restated here because the failure it prevents
+ * is two drivers quietly reconfiguring the same bus pins at runtime, which
+ * presents as an intermittently dead panel rather than as a build error. */
+#if CONFIG_OPENREADER_DISPLAY && CONFIG_OPENREADER_RC522_HW_SPI
+#error "LCD and RC522 cannot both own hardware SPI2 - pick the bit-banged RC522 bus"
+#endif
 
 /* ---- Guards ------------------------------------------------------------
  *
@@ -137,42 +150,40 @@
 #if BOARD_PIN_IS_USB(BOARD_RS485_TX) || BOARD_PIN_IS_USB(BOARD_RS485_RX)
 #error "RS-485 pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
 #endif
-#if BOARD_PIN_IS_USB(BOARD_SPI_SCLK) || BOARD_PIN_IS_USB(BOARD_SPI_MOSI) \
- || BOARD_PIN_IS_USB(BOARD_SPI_MISO)
-#error "SPI pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
-#endif
-#if BOARD_PIN_IS_USB(BOARD_RC522_CS) || BOARD_PIN_IS_USB(BOARD_RC522_RST)
+#if CONFIG_OPENREADER_RC522
+#if BOARD_PIN_IS_USB(BOARD_RC522_SCLK) || BOARD_PIN_IS_USB(BOARD_RC522_MOSI) \
+ || BOARD_PIN_IS_USB(BOARD_RC522_MISO) || BOARD_PIN_IS_USB(BOARD_RC522_CS)   \
+ || BOARD_PIN_IS_USB(BOARD_RC522_RST)
 #error "RC522 pin set to GPIO12/13 - those are USB D-/D+; USB console and flashing would stop working"
 #endif
+#endif
 
-/* The two peripherals must not fight over a pin either. */
+/* Peripherals must not fight over a pin either. Only the RS-485 pair is
+ * configurable, so these all check that pair against whatever else the
+ * selected build actually claims — and only against what it claims, so a
+ * display-only build does not reject an RS-485 pin on the RC522's GPIO23. */
 #if BOARD_RS485_TX == BOARD_RS485_RX
 #error "RS-485 TX and RX are the same GPIO"
 #endif
-#if BOARD_RS485_TX == BOARD_SPI_SCLK || BOARD_RS485_TX == BOARD_SPI_MOSI \
- || BOARD_RS485_TX == BOARD_SPI_MISO
-#error "RS-485 TX GPIO collides with an SPI bus pin"
+
+#if CONFIG_OPENREADER_DISPLAY
+#if BOARD_RS485_TX == BOARD_LCD_SCLK || BOARD_RS485_TX == BOARD_LCD_MOSI \
+ || BOARD_RS485_TX == BOARD_LCD_CS   || BOARD_RS485_TX == BOARD_LCD_DC   \
+ || BOARD_RS485_TX == BOARD_LCD_RST  || BOARD_RS485_TX == BOARD_LCD_BL   \
+ || BOARD_RS485_RX == BOARD_LCD_SCLK || BOARD_RS485_RX == BOARD_LCD_MOSI \
+ || BOARD_RS485_RX == BOARD_LCD_CS   || BOARD_RS485_RX == BOARD_LCD_DC   \
+ || BOARD_RS485_RX == BOARD_LCD_RST  || BOARD_RS485_RX == BOARD_LCD_BL
+#error "RS-485 GPIO collides with an onboard LCD pin"
 #endif
-#if BOARD_RS485_RX == BOARD_SPI_SCLK || BOARD_RS485_RX == BOARD_SPI_MOSI \
- || BOARD_RS485_RX == BOARD_SPI_MISO
-#error "RS-485 RX GPIO collides with an SPI bus pin"
 #endif
 
-/* The peripheral-specific pins are only claimed by whichever half of the
- * SPI2 choice is built, so the collision checks follow the same switch —
- * otherwise selecting the LCD would still reject an RS-485 pin on GPIO23,
- * which in that build nothing is using. */
-#if CONFIG_OPENREADER_SPI2_LCD
-#if BOARD_RS485_TX == BOARD_LCD_CS  || BOARD_RS485_TX == BOARD_LCD_DC  \
- || BOARD_RS485_TX == BOARD_LCD_RST || BOARD_RS485_TX == BOARD_LCD_BL  \
- || BOARD_RS485_RX == BOARD_LCD_CS  || BOARD_RS485_RX == BOARD_LCD_DC  \
- || BOARD_RS485_RX == BOARD_LCD_RST || BOARD_RS485_RX == BOARD_LCD_BL
-#error "RS-485 GPIO collides with an onboard LCD control pin"
-#endif
-#else
-#if BOARD_RS485_TX == BOARD_RC522_CS || BOARD_RS485_TX == BOARD_RC522_RST \
- || BOARD_RS485_RX == BOARD_RC522_CS || BOARD_RS485_RX == BOARD_RC522_RST
-#error "RS-485 GPIO collides with an RC522 control pin"
+#if CONFIG_OPENREADER_RC522
+#if BOARD_RS485_TX == BOARD_RC522_SCLK || BOARD_RS485_TX == BOARD_RC522_MOSI \
+ || BOARD_RS485_TX == BOARD_RC522_MISO || BOARD_RS485_TX == BOARD_RC522_CS   \
+ || BOARD_RS485_TX == BOARD_RC522_RST  || BOARD_RS485_RX == BOARD_RC522_SCLK \
+ || BOARD_RS485_RX == BOARD_RC522_MOSI || BOARD_RS485_RX == BOARD_RC522_MISO \
+ || BOARD_RS485_RX == BOARD_RC522_CS   || BOARD_RS485_RX == BOARD_RC522_RST
+#error "RS-485 GPIO collides with an RC522 pin"
 #endif
 #endif
 

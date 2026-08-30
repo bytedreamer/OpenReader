@@ -33,28 +33,22 @@ static const char *TAG = "main";
  * only the RC522's own ~25 ms response timer at worst. */
 #define CARD_POLL_INTERVAL_MS 100
 
+#if defined(BOARD_SPI_HOST)
+/* Bring up hardware SPI2 for whichever peripheral owns it — the LCD when
+ * the display is built, otherwise an RC522 set to the hardware bus. board.h
+ * decides and defines BOARD_SPI_HOST only in those cases; this follows it.
+ *
+ * A build with the display off and the RC522 bit-banged claims no hardware
+ * SPI at all, and then this does not exist. */
 static esp_err_t spi_bus_init(void)
 {
-    /* SPI2 routed to header pins for the RC522 alone.
-     *
-     * An earlier version of this parked the LCD and SD chip selects to stop
-     * them contending on a shared bus. That is no longer needed — and would
-     * now be actively wrong, since GPIO4 (the SD chip select) is on the
-     * header where a builder may want it. The LCD's SPI lines never leave
-     * the board, so the RC522 could not share that bus even if we wanted it
-     * to; the two are simply separate now.
-     *
-     * The consequence to remember: SPI2 is the only general-purpose SPI
-     * master on this part, and it is committed here. Driving the onboard
-     * LCD later means sharing this host with a second device on the
-     * board-internal pins, not adding a second bus. */
     const spi_bus_config_t bus = {
         .sclk_io_num     = BOARD_SPI_SCLK,
         .mosi_io_num     = BOARD_SPI_MOSI,
         .miso_io_num     = BOARD_SPI_MISO,
         .quadwp_io_num   = -1,
         .quadhd_io_num   = -1,
-#if CONFIG_OPENREADER_SPI2_LCD
+#if CONFIG_OPENREADER_DISPLAY
         /* A whole 172x320 frame at 16 bpp in one transfer. The display
          * pushes partial bands most of the time, but the first paint after
          * any change is the full screen. */
@@ -67,8 +61,9 @@ static esp_err_t spi_bus_init(void)
     };
     return spi_bus_initialize(BOARD_SPI_HOST, &bus, SPI_DMA_CH_AUTO);
 }
+#endif /* BOARD_SPI_HOST */
 
-#if CONFIG_OPENREADER_SPI2_RC522
+#if CONFIG_OPENREADER_RC522
 static void card_task(void *arg)
 {
     (void)arg;
@@ -105,6 +100,15 @@ static void card_task(void *arg)
                 }
                 ESP_LOGI(TAG, "card %s (SAK 0x%02X)", hex, uid.sak);
 
+#if CONFIG_OPENREADER_DISPLAY
+                /* Straight to the panel, not via the OSDP task. What the
+                 * reader face shows is what this reader physically read;
+                 * whether the ACU ever collects it is a separate question,
+                 * and conflating the two would make a full event queue look
+                 * like a card that never scanned. */
+                display_set_card(uid.bytes, uid.len);
+#endif
+
                 if (osdp_reader_submit_card(&uid) != ESP_OK) {
                     ESP_LOGW(TAG, "could not hand card to the OSDP task");
                 }
@@ -121,14 +125,16 @@ static void card_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(CARD_POLL_INTERVAL_MS));
     }
 }
-#endif /* CONFIG_OPENREADER_SPI2_RC522 */
+#endif /* CONFIG_OPENREADER_RC522 */
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "OpenReader starting");
 
     ESP_ERROR_CHECK(status_led_init());
+#if defined(BOARD_SPI_HOST)
     ESP_ERROR_CHECK(spi_bus_init());
+#endif
     ESP_ERROR_CHECK(rs485_init(CONFIG_OPENREADER_RS485_BAUD));
 
     /* A failed RC522 is not fatal. The PD should still come up and answer
@@ -136,7 +142,7 @@ void app_main(void)
      * diagnosable from the head end, whereas one that never boots looks
      * identical to a dead cable. */
     bool card_reader_ok = false;
-#if CONFIG_OPENREADER_SPI2_RC522
+#if CONFIG_OPENREADER_RC522
     esp_err_t err = rc522_init();
     card_reader_ok = (err == ESP_OK);
     if (!card_reader_ok) {
@@ -146,7 +152,7 @@ void app_main(void)
     }
 #endif
 
-#if CONFIG_OPENREADER_SPI2_LCD
+#if CONFIG_OPENREADER_DISPLAY
     /* Same reasoning as the RC522 above: a panel that does not come up is
      * a missing convenience, not a reason to leave the door without a PD. */
     esp_err_t disp_err = display_init();
@@ -160,7 +166,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(osdp_reader_init());
 
-#if CONFIG_OPENREADER_SPI2_RC522
+#if CONFIG_OPENREADER_RC522
     if (card_reader_ok) {
         /* Priority 5 against the OSDP task's 10: servicing the bus always
          * wins. A card read that waits an extra millisecond is invisible; a
