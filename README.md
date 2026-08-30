@@ -39,7 +39,7 @@ when something is wrong. Two formats, same content:
 | ✅ | `osdp_LSTAT` / `ISTAT` / `OSTAT` / `RSTAT` status reporting |
 | ⬜ | **Secure Channel** — see below. Do not deploy without it |
 | ✅ | LCD reader face — colour disc mirroring the LED, address, link state, card panel |
-| ⬜ | LCD and RC522 at the same time — one SPI2 host, see below |
+| ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
 | ⬜ | Tamper switch input |
 
 ## Building
@@ -56,7 +56,7 @@ git clone <this repo>
 
 cd OpenReader
 idf.py set-target esp32c6
-idf.py menuconfig      # OpenReader → SPI2 peripheral, address, baud, card repeat window
+idf.py menuconfig      # OpenReader → display, card reader, address, baud, ...
 idf.py build flash monitor
 ```
 
@@ -68,9 +68,32 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | ------ | ------- | - |
 | OSDP PD address | 0 | Must match what the ACU polls (0x00–0x7E) |
 | RS-485 baud rate | 9600 | The spec's mandatory default; must match the ACU |
+| Reader face on the LCD | on | The virtual reader; owns hardware SPI2 when built |
+| MFRC522 card reader | on | Turn off for a display-only or bus-only build |
+| How the RC522 is clocked | bit-banged | Software SPI, so the panel keeps SPI2. See below |
 | Discard local echo | off | Only enable if your transceiver echoes — [HARDWARE.md §8.3](docs/HARDWARE.md) |
 | Card repeat window | 2000 ms | Suppresses re-reads of a card left on the antenna |
 | PD serial number | 1 | Give each unit on a bus a distinct value |
+
+### One SPI master, two peripherals
+
+The ESP32-C6 has a single general-purpose SPI master (SPI2) and an SPI host
+has one set of bus pins, so only one peripheral can be on it. That looks like
+a straight choice between the display and the card reader, and it was one for
+a while — but the constraint only really binds the panel. The LCD's clock and
+data are soldered to GPIO7/6 and cannot be moved anywhere; the RC522's pins
+were always ours to pick.
+
+So the RC522 is the one that gives way, and it does so by being clocked
+differently rather than by being switched off. The default build bit-bangs
+it, leaving hardware SPI2 to the panel, and both run at once.
+
+The cost is close to nothing. Hardware SPI2 clocks the reader at 5&nbsp;MHz and
+the software bus at roughly 500&nbsp;kHz against a 10&nbsp;MHz part, but a card poll
+is only a few dozen two-byte register accesses, ten times a second. Select
+**Hardware SPI2** instead if you are building without the display and want
+the headroom — `menuconfig` only offers it when the display is off, and the
+wiring is identical either way.
 
 Pin assignments are in [`main/board.h`](main/board.h) and are the single
 source of truth — the wiring tables in HARDWARE.md follow it.
@@ -78,10 +101,12 @@ source of truth — the wiring tables in HARDWARE.md follow it.
 ## How it fits together
 
 ```
-main.c            two tasks: OSDP service, and RC522 polling
+main.c            three tasks: OSDP service, RC522 polling, LCD repaint
 ├── rs485.c       UART1 + MAX13487 → the PD's read/write/now_ms transport
-├── rc522.c       MFRC522 SPI driver: REQA, anticollision, SELECT, UID
+├── rc522.c       MFRC522 driver: REQA, anticollision, SELECT, UID.
+│                 Hardware SPI2 or bit-banged, chosen at one seam
 ├── osdp_reader.c the PD: identity, capabilities, handlers, event queue
+├── display.c     the reader face on the ST7789: LED disc, card panel
 └── status_led.c  the WS2812, driven by osdp_LED (or by link state offline)
 
 components/osdp/  wraps the OSDP-Embedded C sources as an IDF component

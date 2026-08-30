@@ -220,6 +220,30 @@ uses one.
 > These same values live in [`main/board.h`](../main/board.h) — change them
 > in one place and both the firmware and this table stay true.
 
+### The header, as it sits in front of you
+
+Waveshare's own pinout diagram, with the USB-C connector at the top. Only
+`TX`/`RX` are silkscreened by name; every other pin is marked with its bare
+GPIO number, so the label on the board *is* the GPIO.
+
+| Left column | | Right column | |
+| ----------- | - | ------------ | - |
+| `5V` | | `TX` (GPIO16) | UART0 TX |
+| `GND` | | `RX` (GPIO17) | UART0 RX |
+| `3V3 (OUT)` | | `GP13` | USB D+ — do not use |
+| `GP0` | **RS-485 TX** | `GP12` | USB D- — do not use |
+| `GP1` | **RS-485 RX** | `GP23` | **RC522 SDA/CS** |
+| `GP2` | **RC522 SCK** | `GP20` | **RC522 RST** |
+| `GP3` | **RC522 MOSI** | `GP19` | **RC522 MISO** |
+| `GP4` | SD card CS | `GP18` | free |
+| `GP5` | strapping pin | `GP9` | BOOT strap |
+
+Note `GP23`, `GP20` and `GP19` are three consecutive pins on the right
+column, and the RC522 uses all three. A one-position slip there puts CS on
+the reset line and reset on MISO, which does not look like a wiring mistake
+from the firmware side — it looks like a module that is simply not answering.
+§8 has the diagnostic that tells the two apart.
+
 ### RS-485 — DSD TECH SH-U12
 
 | SH-U12 pin | Goes to | Note |
@@ -240,21 +264,35 @@ the last bit *is* the end of your turn on the wire.
 
 ### Card reader — MFRC522
 
-The RC522 gets SPI2 on header pins of its own. It cannot share the LCD's
-bus: that bus's clock and data (GPIO6/7) never leave the board. The
-ESP32-C6's GPIO matrix routes SPI2 to any pin, so the RC522's lines are
-picked from the free header GPIOs below, avoiding the strapping pins.
+The RC522 gets header pins of its own. It cannot share the LCD's bus: that
+bus's clock and data (GPIO6/7) never leave the board. Its lines are picked
+from the free header GPIOs below, avoiding the strapping pins.
+
+Wire it once and it works either way the firmware chooses to clock it. The
+default build bit-bangs these pins in software, which leaves the chip's only
+hardware SPI master free for the LCD so the display and the reader run at the
+same time; a build without the display can drive the same pins from hardware
+SPI2 instead. Same wiring, same table — see "One SPI master, two
+peripherals" in the README.
+
+Listed in the order they appear on the module's own pin strip, so you can
+work down it without hunting:
 
 | RC522 pin | ESP32-C6 GPIO | Note |
 | --------- | ------------- | ---- |
-| `3.3V` | 3.3 V | **Never 5 V** — the MFRC522 is a 3.3 V part |
-| `GND` | GND | |
-| `SCK` | GPIO2 | |
-| `MOSI` | GPIO3 | |
-| `MISO` | GPIO19 | |
-| `SDA` (this is CS) | GPIO23 | The RC522's own chip select |
-| `RST` | GPIO20 | |
+| `SDA` | GPIO23 (header `GP23`) | This is chip select, **not** I²C data |
+| `SCK` | GPIO2 (header `GP2`) | |
+| `MOSI` | GPIO3 (header `GP3`) | |
+| `MISO` | GPIO19 (header `GP19`) | |
 | `IRQ` | Leave unconnected | The driver polls; IRQ is unused |
+| `GND` | GND | |
+| `RST` | GPIO20 (header `GP20`) | |
+| `3.3V` | 3.3 V | **Never 5 V** — the MFRC522 is a 3.3 V part |
+
+Keep these leads short. Neither bus is fussy — hardware SPI2 runs them at
+5&nbsp;MHz and the bit-banged bus at roughly 500&nbsp;kHz, both far under the
+MFRC522's 10&nbsp;MHz ceiling — but long unshielded jumpers with no solid
+ground return between the boards will misread before either rate does.
 
 The RC522's `SDA` pin is a chip select, not I²C data. The silkscreen is
 misleading and it catches almost everyone once.
@@ -267,6 +305,11 @@ misleading and it catches almost everyone once.
 | LCD CS / DC / RST / backlight | 14 / 15 / 21 / 22 |
 | microSD CS / MISO | 4 / 5 |
 | WS2812 RGB LED | 8 |
+
+The LCD is the reason the pin map is shaped the way it is. GPIO6 and GPIO7
+are soldered to the panel and reach no header, so the LCD is the one
+peripheral here whose bus cannot be moved — which is why, when both are
+built, it keeps hardware SPI2 and the RC522 is the one clocked in software.
 
 ---
 
