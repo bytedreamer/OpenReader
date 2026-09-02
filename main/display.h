@@ -22,6 +22,8 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+#include "credential.h"
+
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -56,8 +58,21 @@ void display_set_secure(display_sc_t state);
  * currently in. */
 void display_set_reader_present(bool present);
 
-/* Show a card. uid_len 0 clears back to the idle state. Call this from
- * wherever real reads arrive once an RC522 is wired. */
-void display_set_card(const uint8_t *uid, size_t uid_len);
+/* Show a card. NULL clears back to the idle state.
+ *
+ * The two kinds are shown differently, on purpose.
+ *
+ * A UID is displayed and stays up. It is not a secret in any useful sense —
+ * anyone with a phone can read it off the badge — and seeing it is how you
+ * tell whether the reader read the card you think it did.
+ *
+ * A PKOC credential is never displayed, and the fact of it is displayed only
+ * briefly. The credential is the value that names a person, and a screen at a
+ * door showing it is a transcript legible to whoever is standing behind the
+ * holder. So the panel shows one word, large enough to read at a glance from
+ * where the holder is standing, and clears itself a few seconds later —
+ * because "a PKOC card was read" is a report about something that just
+ * happened, and leaving it up turns it into a claim about the present. */
+void display_set_card(const credential_t *cred);
 
 #endif /* DISPLAY_H */

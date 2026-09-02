@@ -1084,8 +1084,9 @@ ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
       <p><code>LED_LEVEL</code> in <code>main/status_led.c</code> is at full scale (255) — what a demo on a desk wants, and more than a reader at a door does, since the WS2812 is genuinely unpleasant close up at that level. Turn it down for an installed unit. Every colour is mixed proportionally to it, so amber stays amber and the offline breath keeps its ramp wherever it is set.</p>
 
       <h3>The credential itself</h3>
-      <p>A MIFARE Classic UID is not a secret. It is readable by anyone with a phone and clonable with commodity hardware. This reader reports the UID, which is the right thing for a reader to do — deciding whether a UID is sufficient authentication for a given door belongs to the access control system, not to the reader.</p>
-      <p>If it isn't sufficient, the answer is a credential that authenticates cryptographically — DESFire, SEOS, or a mobile credential — not a change to this firmware.</p>
+      <p>A MIFARE Classic UID is not a secret. It is readable by anyone with a phone and clonable with commodity hardware. Deciding whether a UID is sufficient authentication for a given door belongs to the access control system, not to the reader — but when it isn't sufficient, this reader has an answer.</p>
+      <p>It reads <strong>PKOC</strong> as well. The card holds a P-256 key pair in its secure element, its public key is the credential, and at the door it proves it holds the matching private key by signing a nonce the reader supplies. Cloning one needs the private key rather than the bits it broadcasts. No extra hardware is involved — the same RC522 carries it, over ISO/IEC&nbsp;14443-4 — so this is a <code>menuconfig</code> decision and a supply of PKOC cards, not another shopping list. See the README’s “PKOC” section.</p>
+      <p>Two settings there deserve a decision rather than a default. <em>Report the UID when a card has no PKOC applet</em> is on, which keeps a mixed population of badges working; turn it off for a PKOC-only door, because a panel that accepts either is only as strong as the weaker. And <em>verify the card’s signature</em> must stay on for anything with a door behind it — with it off the reader repeats whatever public key a card claims, which is worth exactly as much as a UID.</p>
     </div>
   </div>
 </section>

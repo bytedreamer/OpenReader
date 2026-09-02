@@ -599,6 +599,8 @@ logs the read as it hands it to the OSDP task.
 | Panel sees garbage, or intermittent frames | Missing or doubled 120 Ω termination; A/B not on the same twisted pair; no common ground |
 | `VersionReg=0x00` at boot | RC522 CS on the wrong pin, or MISO/MOSI swapped |
 | Card reads on the bench, not in the enclosure | Metal near the antenna, or the RC522 mounted too far behind a thick faceplate |
+| PKOC card reports its UID instead of a credential | The applet did not answer SELECT, or the card was withdrawn mid-transaction — a PKOC exchange is several round trips and a signature long, so hold the card still. `idf.py monitor` at debug level says which |
+| PKOC card reports nothing at all | Either the signature failed to verify, which is logged as a warning and is never fallen back from, or this is a PKOC-only build and the card has no applet |
 | ESP32-C6 resets when the bus is connected | The 5 V TXD reached a GPIO — check §4. The pin may already be damaged |
 | Reads work, but the panel never sees the card | The PD went offline between the read and the next poll; queued credentials are discarded on a comms loss by design (spec 7.11/7.12) |
 | Nothing at all after wiring the divider | Divider fitted to the wrong pin — it belongs on TXD (transceiver → MCU), never on RXD |
@@ -630,12 +632,26 @@ down for an installed unit; every colour is mixed proportionally to it, so
 amber stays amber and the offline breath keeps its ramp wherever it is set.
 
 **The credential itself.** A MIFARE Classic UID is not a secret — it is
-readable by anyone with a phone and clonable with commodity hardware. This
-reader reports the UID, which is the right thing for it to do; deciding
-whether a UID is sufficient authentication for a given door is the access
-control system's problem, not the reader's. If it isn't sufficient, the
-answer is a credential that authenticates cryptographically (DESFire, SEOS,
-or a mobile credential), not a change to this firmware.
+readable by anyone with a phone and clonable with commodity hardware.
+Deciding whether a UID is sufficient authentication for a given door is the
+access control system's problem, not the reader's; but when it isn't
+sufficient, this reader has an answer.
+
+It reads **PKOC** as well. The card holds a P-256 key pair in its secure
+element, its public key is the credential, and at the door it proves it holds
+the matching private key by signing a nonce the reader supplies. Cloning one
+needs the private key rather than the bits it broadcasts. No extra hardware
+is involved — the same RC522 carries it, over ISO/IEC 14443-4 — so this is a
+`menuconfig` decision and a supply of PKOC cards, not another shopping list.
+See the README's "PKOC" section.
+
+Two settings there deserve a decision rather than a default. **Report the UID
+when a card has no PKOC applet** is on, which keeps a mixed population of
+badges working; turn it off for a PKOC-only door, because a panel that
+accepts either is only as strong as the weaker. And **verify the card's
+signature** must stay on for anything with a door behind it — with it off the
+reader repeats whatever public key a card claims, which is worth exactly as
+much as a UID.
 
 ---
 

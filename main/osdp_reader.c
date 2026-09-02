@@ -27,20 +27,24 @@ static const char *TAG = "osdp";
 
 /* Format code for the osdp_RAW replies we send.
  *
- * 0x00 (OSDP_RAW_FORMAT_RAW) says "these are unformatted bits, you decide"
- * and is what this reader sends: it reports the MIFARE UID exactly as the
- * RC522 read it and leaves interpretation to the ACU.
+ * 0x00 (OSDP_RAW_FORMAT_RAW) says "these are unformatted bits, you decide",
+ * which is what this reader sends whichever kind of credential it read: the
+ * MIFARE UID exactly as the RC522 saw it, or the bits AsymCred derived from
+ * a verified PKOC public key. Interpretation is the ACU's.
  *
- * The spec also defines 0x02 (OSDP_RAW_FORMAT_UID), which describes this
- * payload more precisely. Some controllers understand it, more do not. If
- * yours does, switching this to OSDP_RAW_FORMAT_UID is the more honest
- * wire representation and costs nothing else. */
+ * The spec also defines 0x02 (OSDP_RAW_FORMAT_UID), which would describe a
+ * UID read more precisely — but only a UID read, and a reader that changed
+ * format code depending on the card presented would be handing the ACU a
+ * moving target. One code for everything is the more useful contract, and
+ * it is the one more controllers understand. */
 #define RAW_FORMAT OSDP_RAW_FORMAT_RAW
 
 /* Sized for a comfortable number of queued card reads. Each record costs
- * its payload plus a small length prefix, and an osdp_RAW carrying a 7-byte
- * UID is 11 bytes of payload — so this holds far more than the freshness
- * window could ever accumulate. */
+ * its payload plus a small length prefix. The widest thing this reader can
+ * produce is a 256-bit PKOC credential, 36 bytes of payload with the
+ * osdp_RAW header; a 7-byte UID is 11. So this holds several of the worst
+ * case and many of the common one, which is far more than the card
+ * freshness window could ever accumulate. */
 static uint8_t s_event_queue[256];
 
 static osdp_pd_t   s_pd;
@@ -405,12 +409,12 @@ static size_t status_outputs(void *user, uint8_t *out, size_t cap)
 
 /* ---- Card reads --------------------------------------------------------- */
 
-esp_err_t osdp_reader_submit_card(const rc522_uid_t *uid)
+esp_err_t osdp_reader_submit_card(const credential_t *cred)
 {
-    if (uid == NULL || s_card_queue == NULL) {
+    if (cred == NULL || s_card_queue == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (xQueueSend(s_card_queue, uid, 0) != pdTRUE) {
+    if (xQueueSend(s_card_queue, cred, 0) != pdTRUE) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -418,9 +422,9 @@ esp_err_t osdp_reader_submit_card(const rc522_uid_t *uid)
 
 static void drain_card_queue(void)
 {
-    rc522_uid_t uid;
+    credential_t cred;
 
-    while (xQueueReceive(s_card_queue, &uid, 0) == pdTRUE) {
+    while (xQueueReceive(s_card_queue, &cred, 0) == pdTRUE) {
         /* A card read is only meaningful to an ACU that is actually
          * polling. If we are offline there is nobody to tell, and holding
          * the read until the link returns is exactly the replay the spec
@@ -431,20 +435,24 @@ static void drain_card_queue(void)
             continue;
         }
 
-        uint8_t body[OSDP_RAW_HEADER_BYTES + RC522_UID_MAX_BYTES];
+        uint8_t body[OSDP_RAW_HEADER_BYTES + CREDENTIAL_MAX_BYTES];
         size_t  written = 0;
 
         const osdp_raw_t raw = {
             .reader_no    = READER_NO,
             .format_code  = RAW_FORMAT,
-            .bit_count    = (uint16_t)(uid.len * 8U),
-            .bit_data     = uid.bytes,
-            .bit_data_len = uid.len,
+            /* The credential carries its own bit count rather than eight
+             * times its length: the 75-bit PKOC form occupies ten bytes
+             * whose top five bits are zero, and telling the ACU 80 would be
+             * telling it about five bits that are not part of anything. */
+            .bit_count    = cred.bit_count,
+            .bit_data     = cred.bytes,
+            .bit_data_len = cred.len,
         };
 
         if (osdp_raw_build(&raw, body, sizeof(body), &written) != OSDP_OK) {
-            ESP_LOGE(TAG, "osdp_RAW build failed for a %u-byte UID",
-                     (unsigned)uid.len);
+            ESP_LOGE(TAG, "osdp_RAW build failed for a %u-bit %s credential",
+                     (unsigned)cred.bit_count, credential_kind_name(&cred));
             continue;
         }
 
@@ -490,7 +498,7 @@ static void note_reset_reason(void)
 
 esp_err_t osdp_reader_init(void)
 {
-    s_card_queue = xQueueCreate(8, sizeof(rc522_uid_t));
+    s_card_queue = xQueueCreate(8, sizeof(credential_t));
     if (s_card_queue == NULL) {
         return ESP_ERR_NO_MEM;
     }

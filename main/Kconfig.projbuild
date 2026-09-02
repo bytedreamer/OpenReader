@@ -34,8 +34,10 @@ menu "OpenReader"
         bool "External MFRC522 card reader"
         default y
         help
-            Reads ISO/IEC 14443-A cards and reports each UID to the ACU as
-            osdp_RAW. Turn off for a display-only or bus-only build.
+            Reads ISO/IEC 14443-A cards and reports what it finds to the ACU
+            as osdp_RAW — the UID, or a PKOC credential where the card
+            carries one and PKOC is built. Turn off for a display-only or
+            bus-only build.
 
     choice OPENREADER_RC522_BUS
         prompt "How the RC522 is clocked"
@@ -68,6 +70,123 @@ menu "OpenReader"
             face and real card reads coexist.
 
     endchoice
+
+
+    config OPENREADER_PKOC
+        bool "PKOC credentials (Public Key Open Credential)"
+        depends on OPENREADER_RC522
+        default y
+        help
+            Reads PKOC 1.1 credentials as well as UIDs. The card holds a
+            P-256 key pair in its secure element and its public key is the
+            credential; at the door the card signs a nonce this reader
+            supplies, the reader verifies it, and only then derives the
+            value the ACU is sent.
+
+            That is worth having because a reader holding no secret is a
+            reader with nothing to steal, and cloning a card needs the
+            private key rather than the bits it broadcasts — unlike a UID,
+            which anyone with a phone can copy off a badge in a pocket.
+
+            Needs the AsymCred library as a sibling checkout, or
+            ASYMCRED_DIR pointing at one. Turning this off removes the
+            dependency entirely and leaves a UID-only reader.
+
+            Cards that have no PKOC applet are unaffected: the reader tries
+            PKOC only when the card's SAK says it speaks ISO/IEC 14443-4,
+            and falls back to reporting the UID when the applet is absent.
+
+    choice OPENREADER_PKOC_CRED
+        prompt "Credential width reported to the ACU"
+        depends on OPENREADER_PKOC
+        default OPENREADER_PKOC_CRED_256
+        help
+            All three forms are taken from the X component of the card's
+            public key, and all three are defined by the PKOC specification.
+            They differ only in how much of it reaches the panel.
+
+            Whatever you pick has to match how the credential was enrolled
+            in the access control system. A 75-bit reader and a 256-bit
+            enrolment do not meet in the middle; they simply never match.
+
+    config OPENREADER_PKOC_CRED_256
+        bool "256 bits — the whole X component"
+        help
+            32 bytes in the osdp_RAW payload. The full credential, with no
+            truncation and so no chance of two cards colliding. Needs an ACU
+            that accepts a raw bit field this wide; that is the normal case
+            for anything with bi-directional communication to the head end,
+            and the reason this is the default.
+
+    config OPENREADER_PKOC_CRED_75
+        bool "75 bits — PSIA's recommendation for legacy panels"
+        help
+            10 bytes, top five bits zero. What the specification recommends
+            where the panel cannot carry the full key.
+
+    config OPENREADER_PKOC_CRED_64
+        bool "64 bits — the minimum the specification defines"
+        help
+            8 bytes. Only for a panel that cannot take 75.
+
+    endchoice
+
+    config OPENREADER_PKOC_REQUIRE_SIGNATURE
+        bool "Verify the card's signature before reporting anything"
+        depends on OPENREADER_PKOC
+        default y
+        help
+            Leave this on for any reader on a door.
+
+            With it off the reader reports whatever public key a card
+            offers, without checking the card can prove it owns the matching
+            private key. That is a value the card claimed — replayable by
+            anyone who has watched one exchange — and it makes a PKOC
+            credential worth exactly as much as a UID.
+
+            The only honest uses are enrolment, where reading a key off a
+            new card is the entire point, and bench diagnostics. The
+            firmware logs a warning at every boot while it is off.
+
+    config OPENREADER_PKOC_UID_FALLBACK
+        bool "Report the UID when a card has no PKOC applet"
+        depends on OPENREADER_PKOC
+        default y
+        help
+            On by default so a mixed population of badges keeps working: a
+            card with no PKOC applet is reported by UID exactly as before.
+
+            Turn it off for a PKOC-only door. Then a card that cannot
+            authenticate produces nothing at all, which is the stricter and
+            more defensible position — a UID is not evidence of anything,
+            and a panel that accepts both has the weaker of the two as its
+            real security.
+
+            Either way, a card whose signature fails to verify is never
+            reported by UID. That is not a fallback, it is a failed proof.
+
+    config OPENREADER_PKOC_SITE_ID
+        string "PKOC site key identifier (32 hex characters)"
+        depends on OPENREADER_PKOC
+        default "00000000000000000000000000000000"
+        help
+            The first half of the 32-byte reader identifier sent in
+            AUTHENTICATE. 16 bytes, written as hex with no separators.
+
+            All zeros means this reader has not been assigned a site, which
+            is the honest thing for a self-built reader to say. The card is
+            not required to act on it — nothing in the exchange depends on
+            it — so fill it in when your access control system issues you
+            one, and leave it alone until then. A malformed value is
+            reported at boot and sent as zeros.
+
+    config OPENREADER_PKOC_LOCATION_ID
+        string "PKOC reader location identifier (32 hex characters)"
+        depends on OPENREADER_PKOC
+        default "00000000000000000000000000000000"
+        help
+            The second half of the reader identifier: which door this is.
+            Same format and the same rules as the site identifier above.
 
     config OPENREADER_BUZZER
         bool "Audible output — active sounder on GPIO5"

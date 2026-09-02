@@ -9,7 +9,7 @@
 #ifndef OSDP_READER_H
 #define OSDP_READER_H
 
-#include "rc522.h"
+#include "credential.h"
 #include "esp_err.h"
 
 /* Build the PD, bind the transport, identity, capabilities and handlers.
@@ -18,8 +18,14 @@ esp_err_t osdp_reader_init(void);
 
 /* Hand a card read to the OSDP task. Safe from any task. Returns
  * ESP_ERR_NO_MEM if the handoff queue is full, which in practice means the
- * OSDP task is wedged. */
-esp_err_t osdp_reader_submit_card(const rc522_uid_t *uid);
+ * OSDP task is wedged.
+ *
+ * A credential rather than a UID, because the card task is where the
+ * decision is made about what this reader actually read — a UID, or a PKOC
+ * credential derived from a key whose signature verified. By the time it
+ * reaches here that question is settled and the OSDP side only has to carry
+ * the bits. */
+esp_err_t osdp_reader_submit_card(const credential_t *cred);
 
 /* Service the bus forever. Never returns. */
 void osdp_reader_run(void);

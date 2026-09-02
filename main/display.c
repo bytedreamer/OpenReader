@@ -8,6 +8,7 @@
 #include "esp_heap_caps.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -207,11 +208,12 @@ static void draw_text_centered(int y, const char *s, int scale, uint16_t c)
  * and safer here than a mutex: nothing sleeps while holding it, so the OSDP
  * task can never end up parked behind the screen. */
 typedef struct {
-    bool     online;
-    bool     reader_present;
-    uint8_t  sc;             /* display_sc_t */
-    uint8_t  uid[10];
-    uint8_t  uid_len;
+    bool         online;
+    bool         reader_present;
+    uint8_t      sc;         /* display_sc_t */
+    bool         has_card;
+    credential_t card;
+    uint32_t     read_ms;    /* uptime when the card was read */
 } face_t;
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -238,17 +240,23 @@ void display_set_secure(display_sc_t state)
     portEXIT_CRITICAL(&s_lock);
 }
 
-void display_set_card(const uint8_t *uid, size_t uid_len)
+void display_set_card(const credential_t *cred)
 {
-    if (uid_len > sizeof(s_face.uid)) {
-        uid_len = sizeof(s_face.uid);
-    }
     portENTER_CRITICAL(&s_lock);
-    if (uid != NULL && uid_len > 0) {
-        memcpy(s_face.uid, uid, uid_len);
-        s_face.uid_len = (uint8_t)uid_len;
-    } else {
-        s_face.uid_len = 0;
+    /* Zeroed and then filled field by field rather than assigned wholesale.
+     * The render task's dirty check is a memcmp over the whole face, and a
+     * struct assignment is free to leave whatever it likes in the padding
+     * between members — which would show up as a repaint on every pass. */
+    memset(&s_face.card, 0, sizeof(s_face.card));
+    s_face.read_ms  = 0;
+    s_face.has_card = (cred != NULL && cred->len > 0);
+    if (s_face.has_card) {
+        memcpy(s_face.card.bytes, cred->bytes, cred->len);
+        s_face.card.len       = cred->len;
+        s_face.card.bit_count = cred->bit_count;
+        s_face.card.kind      = cred->kind;
+        s_face.card.verified  = cred->verified;
+        s_face.read_ms = (uint32_t)(esp_timer_get_time() / 1000);
     }
     portEXIT_CRITICAL(&s_lock);
 }
@@ -322,6 +330,103 @@ static void draw_secure_row(const face_t *f)
     draw_row(LINK_ROW_Y(2), "SECURE CHANNEL", value, color, NULL);
 }
 
+/* The card panel.
+ *
+ * What it shows depends on which kind of credential arrived, and the
+ * difference is deliberate rather than incidental.
+ *
+ * A UID is shown, and stays. It is not a secret in any useful sense — anyone
+ * with a phone can read it off the badge — and seeing it is how you confirm
+ * the reader read the card you meant.
+ *
+ * A PKOC credential is never shown. It is the value that names a person, and
+ * sixty-four characters of it on a screen at a door is a transcript readable
+ * by whoever is standing behind the holder. One word goes up instead, big
+ * enough to read at arm's length without leaning in, and it clears itself
+ * after a few seconds: "a PKOC card was read" is a report about something
+ * that just happened, and leaving it up would turn it into a claim about
+ * whoever is standing there now.
+ */
+#define CARD_X 10
+#define CARD_Y 244
+#define CARD_W (LCD_W - 20)
+#define CARD_H 54
+
+/* How long a PKOC read stays on the face. Long enough to look up and read it
+ * after presenting a card, short enough that the panel is not still saying it
+ * when the next person arrives. */
+#define CARD_PKOC_HOLD_MS 5000U
+
+/* How much hex fits across the panel. At scale 1 a character is six pixels
+ * wide, at scale 2 twelve; both counts are even so a row never breaks in the
+ * middle of a byte. */
+#define CARD_ROW_CHARS   24
+#define CARD_BIG_CHARS   12
+
+static void draw_card_panel(const face_t *f)
+{
+    fill_round_rect(CARD_X, CARD_Y, CARD_W, CARD_H, C_PANEL);
+    stroke_rect(CARD_X, CARD_Y, CARD_W, CARD_H, C_LINE);
+    draw_text(CARD_X + 10, CARD_Y + 7, "CARD", 1, C_MUTED);
+
+    if (!f->has_card) {
+        draw_text(CARD_X + 10, CARD_Y + 24,
+                  f->reader_present ? "NO CARD" : "NO READER", 2,
+                  f->reader_present ? C_MUTED : C_LINE);
+        return;
+    }
+
+    if (f->card.kind == CREDENTIAL_PKOC) {
+        /* One word, at four times the base glyph — the largest thing on the
+         * face, and the only text here meant to be read from where the card
+         * holder is standing rather than from a bench.
+         *
+         * The colour is the one piece of nuance kept. A build with signature
+         * verification switched off still produces PKOC credentials, and
+         * rendering those exactly like a proven one would make the panel
+         * quietly complicit in the thing that configuration is dangerous
+         * for. Same word, different colour; the boot log says the rest. */
+        draw_text(CARD_X + 10, CARD_Y + 18, "PKOC", 4,
+                  f->card.verified ? C_OK : C_WARN);
+        return;
+    }
+
+    char   hex[CREDENTIAL_MAX_BYTES * 2 + 1];
+    size_t len = credential_hex(&f->card, hex, sizeof(hex));
+
+    if (len <= CARD_BIG_CHARS) {
+        draw_text(CARD_X + 10, CARD_Y + 24, hex, 2, C_TEXT);
+        return;
+    }
+
+    char row[CARD_ROW_CHARS + 1];
+
+    size_t head = (len < CARD_ROW_CHARS) ? len : CARD_ROW_CHARS;
+    memcpy(row, hex, head);
+    row[head] = '\0';
+    draw_text(CARD_X + 10, CARD_Y + 22, row, 1, C_TEXT);
+
+    if (len <= CARD_ROW_CHARS) {
+        return;
+    }
+
+    const size_t rest = len - head;
+    if (rest <= CARD_ROW_CHARS) {
+        memcpy(row, &hex[head], rest);
+        row[rest] = '\0';
+    } else {
+        /* Two dots and the tail. The gap is marked rather than silently
+         * dropped: showing a head and a tail as if they were consecutive
+         * would invite a wrong comparison. */
+        const size_t tail = CARD_ROW_CHARS - 2U;
+        row[0] = '.';
+        row[1] = '.';
+        memcpy(&row[2], &hex[len - tail], tail);
+        row[CARD_ROW_CHARS] = '\0';
+    }
+    draw_text(CARD_X + 10, CARD_Y + 34, row, 1, C_TEXT);
+}
+
 static void render_frame(const face_t *f)
 {
     char line[32];
@@ -348,26 +453,7 @@ static void render_frame(const face_t *f)
 
     draw_secure_row(f);
 
-    /* Card panel. */
-    fill_round_rect(10, 250, LCD_W - 20, 44, C_PANEL);
-    stroke_rect(10, 250, LCD_W - 20, 44, C_LINE);
-    draw_text(20, 257, "CARD", 1, C_MUTED);
-
-    if (f->uid_len > 0) {
-        char hex[sizeof(f->uid) * 2 + 1];
-        for (int i = 0; i < f->uid_len; i++) {
-            snprintf(&hex[i * 2], 3, "%02X", f->uid[i]);
-        }
-        hex[f->uid_len * 2] = '\0';
-        /* Two characters per UID byte outruns the panel past four bytes, so
-         * a 7-byte card drops to the small face rather than running off the
-         * edge. */
-        int scale = (text_width(hex, 2) <= LCD_W - 40) ? 2 : 1;
-        draw_text(20, scale == 2 ? 270 : 274, hex, scale, C_TEXT);
-    } else {
-        draw_text(20, 270, f->reader_present ? "NO CARD" : "NO READER", 2,
-                  f->reader_present ? C_MUTED : C_LINE);
-    }
+    draw_card_panel(f);
 
     /* Status strip. Full width and centred: with the disc gone this is the
      * only thing on the face saying whether anyone is polling us, and it has
@@ -398,6 +484,20 @@ static void render_task(void *arg)
         portENTER_CRITICAL(&s_lock);
         now = s_face;
         portEXIT_CRITICAL(&s_lock);
+
+        /* Expire a PKOC read out of the snapshot before the dirty check
+         * below, so it costs exactly one repaint when the window closes and
+         * nothing at all before or after. Doing it here rather than with a
+         * timer somewhere is what keeps the render task the only thing that
+         * decides when the panel changes. */
+        if (now.has_card && now.card.kind == CREDENTIAL_PKOC) {
+            const uint32_t ms = (uint32_t)(esp_timer_get_time() / 1000);
+            if ((ms - now.read_ms) >= CARD_PKOC_HOLD_MS) {
+                memset(&now.card, 0, sizeof(now.card));
+                now.has_card = false;
+                now.read_ms  = 0;
+            }
+        }
 
         /* Nothing on this face animates any more — the breath went back to
          * the LED with the disc — so there is one dirty test and one full
