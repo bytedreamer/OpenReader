@@ -38,7 +38,9 @@ when something is wrong. Two formats, same content:
 | ✅ | **PKOC 1.1** — the card signs a nonce, the reader verifies it, the credential follows |
 | ✅ | `osdp_LED` driving the RGB LED; `osdp_BUZ` driving a fitted sounder |
 | ✅ | `osdp_LSTAT` / `ISTAT` / `OSTAT` / `RSTAT` status reporting |
-| ⬜ | **Secure Channel** — see below. Do not deploy without it |
+| ✅ | **Secure Channel (SC1)** — AES-128 on the chip's accelerator, install mode by default |
+| ✅ | `osdp_KEYSET` key rotation, persisted across power loss and wrapped to the chip |
+| ✅ | Physical key reset — hold BOOT for 10 s to return the reader to install mode |
 | ✅ | LCD reader face — link speed, address, Secure Channel state, card panel |
 | ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
 | ✅ | Restart reported to the ACU on the first poll (unsolicited `osdp_LSTATR`) |
@@ -74,6 +76,10 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | ------ | ------- | - |
 | OSDP PD address | 0 | Must match what the ACU polls (0x00–0x7E) |
 | RS-485 baud rate | 9600 | The spec's mandatory default; must match the ACU |
+| OSDP Secure Channel | on | Turn off only for bring-up against a panel that cannot do SC |
+| Start in install mode | on | Answer SCBK-D until an `osdp_KEYSET` arrives. See below |
+| Physical key reset | on | Hold BOOT to erase the key and return to install mode |
+| Key reset hold time | 10000 ms | How long the button must be held, continuously |
 | Reader face on the LCD | on | The link and card panels; owns hardware SPI2 when built |
 | MFRC522 card reader | on | Turn off for a display-only or bus-only build |
 | PKOC credentials | on | Needs the AsymCred checkout. Off leaves a UID-only reader |
@@ -266,41 +272,105 @@ have none, AsymCred ships the card half too — a JavaCard applet under
 `card/`, Apache-2.0 licensed, with a prebuilt CAP file. Load it onto a blank
 JavaCard and both ends of this exchange come from the same repository.
 
-## Adding Secure Channel
+## Secure Channel
 
-**The reader ships speaking clear text.** Anyone with access to the cable can
-watch a credential go by and replay it. Fix this before it guards anything.
+**The reader speaks Secure Channel, and it starts in install mode.** SC1 is
+built by default: AES-128 from mbedTLS on the C6's own accelerator, the
+handshake nonce from the hardware RNG, and the key held in flash wrapped so
+that a copy of the flash is not a copy of the key.
 
-SC1 needs AES-128 ECB encrypt/decrypt and an RNG bound through
-`osdp_sc_crypto_t`. Both are already on the ESP32-C6: mbedTLS ships with
-ESP-IDF and is backed by the chip's AES accelerator, and `esp_fill_random()`
-is a true hardware RNG. Sketch:
+### Bringing one up
 
-```c
-static const osdp_sc_crypto_t crypto = {
-    .aes128_ecb_encrypt = esp_aes_encrypt_adapter,
-    .aes128_ecb_decrypt = esp_aes_decrypt_adapter,
-    .rng                = esp_rng_adapter,
-};
-osdp_pd_set_sc_crypto(&s_pd, &crypto, NULL);
-osdp_pd_set_sc_scbk(&s_pd, scbk /* 16 bytes from NVS */);
-osdp_pd_set_sc_cuid(&s_pd, cuid, sizeof(cuid));
-s_sc_configured = true;   /* what the LCD reads to stop saying CLEAR TEXT */
+A reader that has never been keyed answers the handshake on **SCBK-D** — the
+constant `0x30 0x31 … 0x3F` from spec D.4, which every OSDP implementation
+knows. That is how a panel reaches a factory-fresh reader:
+
+1. Power the reader. The LCD says `INSTALL / SCBK-D` and the console says
+   `INSTALL MODE`.
+2. Point the ACU at it with Secure Channel enabled and the default key. The
+   session comes up; the LCD says `INSTALL / OPEN KEY`, still in amber,
+   because a session wrapped under a published key is not a secure one.
+3. Send **`osdp_KEYSET`** with a 16-byte SCBK. The reader stores it, ACKs,
+   and stops answering SCBK-D from that moment.
+4. The ACU re-handshakes with key selector 1. The LCD says `SECURE` in
+   green.
+
+Step 3 is one-way. From then on the only party that can talk to the reader
+is one holding that key — which is the point, and which is why there is a
+button for step 5.
+
+### Where the key lives
+
+In NVS, and by default encrypted with AES-256-GCM under a key the CPU cannot
+read: `esp_hmac_calculate()` drives the C6's HMAC peripheral against a
+read-protected eFuse block, so the wrapping key exists in the hardware and
+nowhere else. Someone who desolders the flash gets a ciphertext only that one
+chip can open.
+
+That needs one eFuse block burned, once, per device:
+
+```bash
+head -c 32 /dev/urandom > hmac_key.bin
+espefuse.py burn_key BLOCK_KEY0 hmac_key.bin HMAC_UP
+rm hmac_key.bin        # nothing ever needs it again
 ```
 
-Two things need care beyond the wiring:
+Unlike flash encryption this is not a whole-device, one-way commitment — it
+burns one key block and leaves the rest of the chip alone. Do it before the
+reader is keyed, or after: a key found stored in the clear is rewrapped on
+the next boot once the block exists.
 
-- **Where the SCBK lives.** It belongs in NVS with flash encryption enabled,
-  not in a `static const` array in the firmware image. A key you can read
-  back off the flash with `esptool` is not a key.
-- **Key rotation.** `osdp_KEYSET` rotates the key on the wire, and the
-  library applies it — but persisting the new key across a reboot is the
-  application's job. Get that wrong and the reader works until it is power
-  cycled, then never talks to the panel again. See PD_GUIDE.md, "Key
-  rotation with `osdp_KEYSET`".
+**With no such block burned the key is stored in plaintext**, and every boot
+says so at `ESP_LOGE`. That is deliberate — a bare board can still bring
+Secure Channel up on the bench — but a reader on a door in that state is one
+`esptool read_flash` away from having no Secure Channel at all.
 
-Bring it up in install mode (SCBK-D) first, confirm the handshake, then move
-to a per-device operational key.
+Note what this does and does not do. It binds the key to the chip, not to the
+firmware: anything that can execute code on this ESP32-C6 can ask the same
+peripheral to unwrap the blob. **Secure Boot and flash encryption remain the
+right answer** for a reader guarding anything that matters. This raises the
+floor from "readable with esptool" to "requires code execution on this
+specific device".
+
+### Getting back: the physical key reset
+
+`osdp_KEYSET` has no undo on the wire, and it must not have one — a path back
+to a published key that could be reached over the bus would be the very hole
+the key exists to close. So the way back is physical:
+
+**Hold the BOOT button for 10 seconds while the reader is running.** The LCD
+counts down, the LED goes amber, and at zero the stored key is erased and the
+reader restarts into install mode. Releasing at any point cancels it.
+
+This does not disturb what BOOT already does. The ROM samples that pin at
+reset; the firmware reads it long afterwards. Holding BOOT *across* a reset
+still enters download mode, key untouched.
+
+Once the board is in an enclosure the button is inside it — so reaching it
+means opening the box, and on a build with the tamper switch fitted that is
+an event the ACU is told about. The reader cannot be quietly downgraded.
+
+The hold time is `CONFIG_OPENREADER_KEY_RESET_HOLD_MS`; the whole feature is
+`CONFIG_OPENREADER_KEY_RESET`, and turning it off means a lost key can only
+be recovered by re-flashing.
+
+### What the reader face says
+
+| | |
+| - | - |
+| `CLEAR TEXT` | Secure Channel compiled out. Nothing on this bus is protected |
+| `INSTALL SCBK-D` | Never keyed, waiting for an `osdp_KEYSET` |
+| `INSTALL OPEN KEY` | Session up — under the key from the specification |
+| `NO SESSION` | Keyed, and the ACU has not established a session. Usually a key mismatch |
+| `SECURE` | Keyed, session established. The only green one |
+| `KEY FAULT` | A key is stored and will not come back. See below |
+
+`KEY FAULT` means the key store is damaged, or the flash was moved to a
+different chip than the eFuse that wrapped it. The reader then refuses
+**every** handshake, including SCBK-D. That is on purpose: a reader that fell
+back to install mode whenever its key store looked damaged would hand anyone
+who can corrupt flash a downgrade to a published key. Hold BOOT to return it
+to install mode deliberately.
 
 ## Testing without a panel
 

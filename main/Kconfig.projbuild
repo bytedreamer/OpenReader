@@ -17,6 +17,86 @@ menu "OpenReader"
             115200 and 230400. 9600 is the spec's mandatory default and the
             right choice for first bring-up.
 
+    config OPENREADER_SECURE_CHANNEL
+        bool "OSDP Secure Channel (SC1)"
+        default y
+        help
+            Encrypts and authenticates everything on the bus. Without it a
+            credential crosses the wire in the clear, and anyone who can
+            reach the cable can read a badge going past and replay it.
+
+            Turn this off only for bring-up against a panel that does not
+            speak SC, or to watch decoded frames on a bus monitor. A reader
+            on a door needs it on. Off, the firmware says CLEAR TEXT on the
+            LCD and at every boot, which is the honest thing for it to say.
+
+            AES-128 comes from mbedTLS on the chip's own accelerator and the
+            randomness from the hardware RNG; both already ship with
+            ESP-IDF, so this costs no external dependency.
+
+    config OPENREADER_SC_INSTALL_MODE
+        bool "Start in install mode (accept SCBK-D until keyed)"
+        depends on OPENREADER_SECURE_CHANNEL
+        default y
+        help
+            A reader that has never been given a key answers the handshake
+            on SCBK-D — the default install key from spec D.4, the constant
+            0x30..0x3F that every OSDP implementation knows. That is how a
+            panel reaches a factory-fresh reader in order to give it a real
+            key with osdp_KEYSET.
+
+            SCBK-D is not a secret and install mode is not security. It is
+            the state in which security gets configured, and a reader left
+            in it is one anyone on the bus can talk to. The LCD says INSTALL
+            rather than SECURE for exactly that reason.
+
+            Once an operational key is stored the reader stops accepting
+            SCBK-D, permanently, until the key is physically reset. That is
+            what makes being keyed mean something.
+
+            Turning this off produces a reader that will not talk to any
+            panel until a key reaches it some other way — there is no other
+            way in this firmware — so it is only useful as a deliberate
+            brick. Leave it on.
+
+    config OPENREADER_KEY_RESET
+        bool "Physical key reset on the BOOT button"
+        depends on OPENREADER_SECURE_CHANNEL
+        default y
+        help
+            Holding the BOOT button (GPIO9) while the firmware is running
+            erases the stored key and returns the reader to install mode,
+            then reboots.
+
+            This is the only way back. osdp_KEYSET is one-way by design: a
+            keyed reader refuses SCBK-D, so a lost key or a replaced panel
+            would otherwise mean a reader nothing can talk to. Deliberately
+            physical — a path back to a published key that could be reached
+            over the wire would be the very hole the key exists to close.
+
+            It does not disturb what BOOT already does. The ROM samples that
+            pin at reset; this reads it long afterwards. Holding BOOT across
+            a reset still enters download mode with the key untouched.
+
+            Turn it off for a reader whose enclosure cannot be trusted to
+            keep hands off the board, accepting that a lost key then means
+            re-flashing the device.
+
+    config OPENREADER_KEY_RESET_HOLD_MS
+        int "How long the button must be held (ms)"
+        depends on OPENREADER_KEY_RESET
+        range 2000 60000
+        default 10000
+        help
+            Long enough that it cannot be an accident, and that someone
+            reaching for RESET and hitting BOOT does not wipe a working
+            reader. Not so long that an installer up a ladder concludes it
+            is broken and lets go.
+
+            The hold must be continuous: releasing restarts it from zero.
+            The LED counts the hold down in amber so there is something to
+            watch while it runs.
+
     config OPENREADER_DISPLAY
         bool "Show the reader face on the onboard LCD"
         default y

@@ -26,7 +26,22 @@ void status_led_set_osdp(uint8_t osdp_color);
 void status_led_set_link(bool online);
 
 /* Advance the offline animation. Call from the main loop; a no-op while
- * online. */
+ * online, and a no-op while an override holds the LED. */
 void status_led_tick(void);
+
+/* Take the LED away from both the ACU and the offline animation.
+ *
+ * There is exactly one thing this is for: a local, physical operation that
+ * the person standing at the reader needs to see the progress of, and that
+ * outranks anything the panel has to say about a light. Holding the key
+ * reset button is that operation — ten seconds with no feedback is
+ * indistinguishable from a button that is not wired, and an installer with
+ * no signal lets go early and concludes the feature is broken.
+ *
+ * `osdp_color` is an osdp_led_color_t so it goes through the same resolver
+ * the ACU's colours do. Pass STATUS_LED_NO_OVERRIDE to release, which hands
+ * the LED straight back to whichever of the two owners should have it. */
+#define STATUS_LED_NO_OVERRIDE (-1)
+void status_led_override(int osdp_color);
 
 #endif /* STATUS_LED_H */

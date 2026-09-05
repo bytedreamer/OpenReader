@@ -144,6 +144,27 @@
 #define BOARD_BUZZER        5
 #define BOARD_TAMPER        4
 
+/* The BOOT button, read as an ordinary input.
+ *
+ * This is the one place the firmware deliberately uses a strapping pin as a
+ * strapping pin's alter ego, so it deserves the same treatment as the note
+ * above. GPIO9 selects the boot mode, and it is sampled by the ROM at reset
+ * and never again. Holding it across a reset still gets the download loader
+ * exactly as it always did; reading it here happens long afterwards, while
+ * the firmware is running, and cannot influence a decision that was made
+ * before this code existed.
+ *
+ * What it buys is a physical return to install mode with no added parts —
+ * see key_reset.h — on a pin that is on the header, is not claimed by
+ * anything else in any build configuration, and ends up inside the enclosure
+ * with the rest of the board.
+ *
+ * Not made configurable. Unlike the RS-485 pair, which has to match however
+ * a transceiver got wired, this is a button Waveshare soldered to a known
+ * pin; a Kconfig value here would only be an opportunity to point it
+ * somewhere that is not a button. */
+#define BOARD_KEY_RESET     9
+
 /* ---- Who owns hardware SPI2 --------------------------------------------
  *
  * SPI2 is the ESP32-C6's only general-purpose SPI master and a host has
@@ -232,6 +253,17 @@
  || BOARD_TAMPER == BOARD_LCD_RST  || BOARD_TAMPER == BOARD_LCD_BL
 #error "Tamper GPIO collides with an onboard LCD pin"
 #endif
+#endif
+#endif
+
+#if CONFIG_OPENREADER_KEY_RESET
+/* The BOOT button is fixed at GPIO9 and nothing in board.h can move it, so
+ * the only pin that can arrive on top of it is the configurable RS-485 pair.
+ * That is a real mistake to make — GPIO9 is a legal header pin and an
+ * installer reading the silkscreen has no reason to know a button is on it —
+ * and it fails as a UART that works until somebody presses BOOT. */
+#if BOARD_KEY_RESET == BOARD_RS485_TX || BOARD_KEY_RESET == BOARD_RS485_RX
+#error "RS-485 GPIO is on the BOOT button (GPIO9) - turn the key reset off or move the UART"
 #endif
 #endif
 

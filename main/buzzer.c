@@ -8,7 +8,8 @@
 static const char *TAG = "buzzer";
 
 static bool s_online;
-static bool s_sounding;
+static bool s_sounding;   /* what the ACU last commanded          */
+static bool s_local;      /* a local operation holding it on      */
 
 /* Cheap three-pin modules disagree about polarity: some sound when the input
  * is driven high, others when it is pulled low (the transistor sits on the
@@ -26,7 +27,10 @@ static bool s_sounding;
 
 static void apply(void)
 {
-    const bool sound = s_online && s_sounding;
+    /* The local hold ignores the link. See buzzer_local(): a reader being
+     * re-keyed is very often one that is not being polled, and that is
+     * precisely when the confirmation beep has to happen. */
+    const bool sound = s_local || (s_online && s_sounding);
     gpio_set_level(BOARD_BUZZER, sound ? LEVEL_SOUNDING : LEVEL_SILENT);
 }
 
@@ -44,6 +48,7 @@ esp_err_t buzzer_init(void)
      * reader that shrieks until the first osdp_BUZ arrives. */
     s_online   = false;
     s_sounding = false;
+    s_local    = false;
     apply();
 
     ESP_LOGI(TAG, "active sounder on GPIO%d (%s)", BOARD_BUZZER,
@@ -60,5 +65,11 @@ void buzzer_set_osdp(bool sounding)
 void buzzer_set_link(bool online)
 {
     s_online = online;
+    apply();
+}
+
+void buzzer_local(bool sounding)
+{
+    s_local = sounding;
     apply();
 }

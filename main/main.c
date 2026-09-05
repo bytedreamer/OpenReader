@@ -17,6 +17,8 @@
 #include "tamper.h"
 #include "osdp_reader.h"
 #include "status_led.h"
+#include "sc_key.h"
+#include "key_reset.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,6 +27,7 @@
 #include "esp_err.h"            /* esp_err_to_name */
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"          /* the Secure Channel key store lives here */
 #include "sdkconfig.h"
 
 #include <string.h>
@@ -203,9 +206,64 @@ static void card_task(void *arg)
 }
 #endif /* CONFIG_OPENREADER_RC522 */
 
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+/* Bring up the flash key/value store that holds the Secure Channel key.
+ *
+ * The recovery case is the interesting one. A partition that is full, or
+ * written by a version of NVS this build cannot read, is repaired by erasing
+ * it — which is a reasonable thing to do to a store whose only contents are
+ * a key that can be re-issued by the panel, and an unreasonable thing to do
+ * silently. Erasing it drops the reader back to install mode, so it says so
+ * at ESP_LOGE: someone will otherwise spend an afternoon wondering why a
+ * reader they keyed last week is asking for SCBK-D again.
+ *
+ * A failure that erasing does not fix is not fatal either. The reader still
+ * comes up, sc_key_load() reports the store as unreadable, and the PD
+ * refuses every handshake rather than falling back to a published key — see
+ * bind_sc(). A reader that will not talk is diagnosable from the head end; a
+ * reader that will not boot looks exactly like a dead cable. */
+static void key_store_init(void)
+{
+    esp_err_t err = nvs_flash_init();
+
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+        err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGE(TAG, "the NVS partition is unusable (%s) and is being "
+                      "erased — ANY STORED SECURE CHANNEL KEY IS GONE and "
+                      "this reader will come up in install mode",
+                 esp_err_to_name(err));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed (%s) — the Secure Channel key cannot "
+                      "be read and every handshake will be refused",
+                 esp_err_to_name(err));
+        return;
+    }
+
+    ESP_ERROR_CHECK(sc_key_init());
+}
+#endif /* CONFIG_OPENREADER_SECURE_CHANNEL */
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "OpenReader starting");
+
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+    /* First, before any peripheral. osdp_reader_init() reads the store to
+     * decide which key this PD comes up on, and everything between here and
+     * there is hardware that has no opinion about it. */
+    key_store_init();
+#endif
+#if CONFIG_OPENREADER_KEY_RESET
+    /* Also early, and for a reason worth stating: someone who has already
+     * decided to reset the key may well be holding the button as the board
+     * powers up. Configuring the pin now means the hold starts being counted
+     * from roughly when they pressed it rather than from whenever the last
+     * SPI peripheral finished probing. */
+    ESP_ERROR_CHECK(key_reset_init());
+#endif
 
     ESP_ERROR_CHECK(status_led_init());
 #if CONFIG_OPENREADER_BUZZER

@@ -238,7 +238,7 @@ GPIO number, so the label on the board *is* the GPIO.
 | `GP2` | **RC522 SCK** | `GP20` | **RC522 RST** |
 | `GP3` | **RC522 MOSI** | `GP19` | **RC522 MISO** |
 | `GP4` | **Tamper switch** *(opt.)* | `GP18` | free |
-| `GP5` | **Buzzer** *(opt.)* | `GP9` | BOOT strap |
+| `GP5` | **Buzzer** *(opt.)* | `GP9` | BOOT strap / **key reset** |
 
 `GP4` and `GP5` are the microSD slot's chip select and data-out on this
 carrier, so using them for the tamper switch and the sounder gives the card
@@ -254,6 +254,15 @@ here is not. The ESP32-C6's five strapping pins do not carry equal weight:
 never uses SDIO. Whatever level a switch or a sounder holds them at during
 reset picks a clock edge nothing reads. Both float by default with no
 internal pull resistor. The build still rejects a tamper pin on 8, 9 or 15.
+
+`GP9` has a second job, and it needs no wiring: it is the BOOT button, and
+the firmware reads it as an ordinary input to offer the physical Secure
+Channel key reset — hold it ten seconds while the reader is running and the
+stored key is erased. Nothing about the button's original behaviour changes.
+The ROM samples that pin at reset and never again, so holding BOOT *across* a
+reset still gets download mode with the key untouched; the firmware's read
+happens long afterwards. The two uses cannot overlap. Do not route anything
+else to `GP9` — the build rejects an RS-485 pin there for this reason.
 
 Note `GP23`, `GP20` and `GP19` are three consecutive pins on the right
 column, and the RC522 uses all three. A one-position slip there puts CS on
@@ -609,16 +618,28 @@ logs the read as it hands it to the OSDP task.
 | LED colours swapped — grant shows red, deny shows green | The pixel's byte order. Red/green and cyan/magenta trade places while blue, white and off look correct — see the note in §5. A colour sweep can appear to pass |
 | Reader online, LED dark | Correct: the ACU owns the LED once the link is up and has commanded no colour. The LCD still reads `ONLINE` |
 | Buzzer clicks once and goes silent | It is a passive buzzer. The firmware drives a static level, not a waveform — you need an active one (§5.2) |
+| LCD says `INSTALL / SCBK-D`, panel will not connect | The reader is unkeyed and waiting. Point the panel at it with Secure Channel enabled and the *default* key, then send `osdp_KEYSET` |
+| LCD says `INSTALL / OPEN KEY` | A session is up, but under the published install key. Working as intended, and not yet secure — send `osdp_KEYSET` |
+| LCD says `NO SESSION` after keying | The reader is keyed and the panel disagrees about the key. Not a wiring fault. Hold BOOT for ten seconds to return to install mode and re-key |
+| LCD says `KEY FAULT` | A key is stored and will not decrypt — a damaged store, or flash moved to a different chip than the eFuse that wrapped it. The reader refuses *every* handshake, including SCBK-D, on purpose. Hold BOOT for ten seconds |
+| Boot logs `NO eFuse HMAC key burned` at `E` level | No eFuse block is provisioned, so the Secure Channel key is stored in plaintext. Fine on a bench, not on a door — see the README |
 
 ---
 
 ## 10. Going beyond the bench
 
-**Secure Channel.** As shipped, this reader speaks clear text. On a real
-installation that means anyone with access to the cable can replay a
-credential. The firmware is one crypto binding away from SC1 (AES-128) — see
-the README's "Adding Secure Channel". Do this before you trust it with a
-door.
+**Secure Channel.** Built and on by default. The reader ships in *install
+mode*, answering the handshake on SCBK-D — the key from spec D.4 that every
+OSDP implementation knows — so that a panel can reach a fresh reader and give
+it a real one with `osdp_KEYSET`. That is not security; it is the state in
+which security gets configured, and the LCD says `INSTALL` rather than
+`SECURE` for exactly that reason.
+
+Key the reader from the panel before you trust it with a door, and burn an
+eFuse HMAC block first so the key it is given is not stored in readable
+flash. Both are a few minutes' work and both are described in the README's
+"Secure Channel" section, along with the ten-second BOOT hold that is the
+only way back to install mode once a reader is keyed.
 
 **Enclosure and tamper.** Supported — a switch on `GP4`, §5 — but off by
 default and unwired on a bench build, in which case the reader still answers

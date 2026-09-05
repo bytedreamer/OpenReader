@@ -4,10 +4,13 @@
 #include "display.h"
 #include "buzzer.h"
 #include "tamper.h"
+#include "sc_key.h"
+#include "key_reset.h"
 
 #include "osdp/osdp_pd.h"
 #include "osdp/osdp_commands.h"
 #include "osdp/osdp_replies.h"
+#include "osdp/osdp_sc.h"       /* OSDP_SCBK_DEFAULT, OSDP_SC_CUID_LEN */
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,6 +18,9 @@
 #include "esp_log.h"
 #include "esp_timer.h"          /* esp_timer_get_time — diagnostic cadence */
 #include "esp_system.h"         /* esp_reset_reason — restart reporting */
+#include "esp_random.h"         /* esp_fill_random — the SC RNG */
+#include "bootloader_random.h"  /* entropy for it, on a build without PKOC */
+#include "mbedtls/aes.h"        /* AES-128 ECB — the whole of SC's crypto */
 #include "sdkconfig.h"
 
 #include <string.h>
@@ -81,15 +87,46 @@ static uint8_t s_tamper = OSDP_LSTATR_NORMAL;
 static bool s_restart_event;    /* restart not yet reported to the ACU      */
 static bool s_restart_queued;   /* an unsolicited osdp_LSTATR is in the queue */
 
-/* Whether this build configured Secure Channel at all.
+/* Which key, if any, this PD is prepared to handshake on.
  *
- * osdp_pd_sc_established() answers "is a session up", which cannot on its
- * own tell a reader with no crypto bound from one whose keys the ACU
- * disagrees with — and those two want completely different things done about
- * them. Set this true alongside the osdp_pd_set_sc_* calls in
- * osdp_reader_init() and the face stops saying CLEAR TEXT and starts saying
- * whether the handshake completed. */
-static bool s_sc_configured;
+ * osdp_pd_sc_established() answers "is a session up", and that one bit
+ * cannot distinguish the four situations that all present as a light that is
+ * not green: no crypto bound, a damaged key store, a reader nobody has keyed
+ * yet, and a reader whose key the ACU disagrees with. They want completely
+ * different things done about them, so the reason is tracked here and the
+ * liveness is read from the library.
+ *
+ * SC_MODE_INSTALL deserves its own name rather than being folded in with
+ * SC_MODE_KEYED, because a session established on SCBK-D is worth nothing:
+ * the key is a constant printed in the specification. Calling both of them
+ * "secure" would report the mechanism and hide the security. */
+typedef enum {
+    SC_MODE_OFF = 0,    /* no crypto bound; this PD speaks clear text     */
+    SC_MODE_INSTALL,    /* keyed with SCBK-D, waiting for an osdp_KEYSET  */
+    SC_MODE_KEYED,      /* an operational SCBK is bound; SCBK-D refused   */
+    SC_MODE_FAULT,      /* crypto bound, no usable key — see bind_sc()    */
+} sc_mode_t;
+
+static sc_mode_t s_sc_mode = SC_MODE_OFF;
+
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+/* Set when an osdp_KEYSET was refused but the library rotated its in-RAM
+ * SCBK regardless, leaving the key the PD would handshake on and the key in
+ * flash disagreeing. Cleared by reconcile_scbk() on the next tick.
+ *
+ * The divergence is a property of the library as it stands, not of anything
+ * this file does. osdp_pd_internal_dispatch applies the rotation whenever
+ * the dispatch outcome is SEND, and a NAK is a perfectly good thing to send
+ * — so a handler that refuses a KEYSET still gets its key rotated
+ * underneath it, and the wire says one thing while the PD believes another.
+ * PD_GUIDE.md documents the opposite ("the PD NAKs and nothing rotates"),
+ * which is what the behaviour should be; until it is, this cleans up.
+ *
+ * It only fires on a failed flash write, which is rare enough that a
+ * reconciliation one tick later is a better trade than holding a second copy
+ * of the key in this module purely to be able to put it back synchronously. */
+static bool s_keyset_diverged;
+#endif
 
 /* ---- Identity ----------------------------------------------------------- */
 
@@ -204,6 +241,276 @@ static void bind_pdcap(void)
     ESP_LOGI(TAG, "PDCAP bound: %u records", (unsigned)count);
 }
 
+/* ---- Secure Channel ------------------------------------------------------
+ *
+ * OSDP-SC (Annex D) reduces entirely to AES-128 on single 16-byte blocks
+ * plus a source of randomness. Key derivation, both cryptograms, the initial
+ * R-MAC, the rolling MAC and the CBC payload encryption are all built out of
+ * those two primitives by the library, which vendors neither — so this is
+ * the whole of the crypto this reader supplies.
+ *
+ * mbedTLS ships with ESP-IDF and its AES is backed by the C6's accelerator,
+ * and esp_fill_random() is the hardware RNG. Nothing here is a dependency
+ * the build did not already have for PKOC.
+ */
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+
+/* One block, one direction.
+ *
+ * The key arrives on every call and the context is set up and torn down
+ * around each one. That looks wasteful and is not worth avoiding: the vtable
+ * is keyless by design — the library uses several different keys (the SCBK
+ * during the handshake, then S-ENC and the two MAC keys) and a cached
+ * schedule would have to be invalidated correctly on every one of those
+ * transitions. An AES-128 key schedule is a few hundred cycles against a
+ * poll cadence measured in milliseconds, and a stale schedule would present
+ * as an intermittently unverifiable MAC. Set it up every time.
+ *
+ * mbedtls_aes_free() on the way out matters for more than tidiness: it zeroes
+ * the expanded round keys, so an aborted session does not leave a schedule
+ * derived from the SCBK sitting in a stack frame. */
+static osdp_status_t aes_block(bool encrypt,
+                               const uint8_t key[OSDP_AES_KEY_LEN],
+                               const uint8_t in [OSDP_AES_BLOCK_LEN],
+                               uint8_t       out[OSDP_AES_BLOCK_LEN])
+{
+    if (key == NULL || in == NULL || out == NULL) {
+        return OSDP_ERR_INVALID_ARG;
+    }
+
+    mbedtls_aes_context ctx;
+    mbedtls_aes_init(&ctx);
+
+    const int keyed = encrypt
+        ? mbedtls_aes_setkey_enc(&ctx, key, OSDP_AES_KEY_LEN * 8U)
+        : mbedtls_aes_setkey_dec(&ctx, key, OSDP_AES_KEY_LEN * 8U);
+
+    osdp_status_t st = OSDP_ERR_INVALID_ARG;
+    if (keyed == 0 &&
+        mbedtls_aes_crypt_ecb(&ctx,
+                              encrypt ? MBEDTLS_AES_ENCRYPT
+                                      : MBEDTLS_AES_DECRYPT,
+                              in, out) == 0) {
+        st = OSDP_OK;
+    }
+    mbedtls_aes_free(&ctx);
+    return st;
+}
+
+static osdp_status_t sc_encrypt(void *user, const uint8_t key[OSDP_AES_KEY_LEN],
+                                const uint8_t in [OSDP_AES_BLOCK_LEN],
+                                uint8_t       out[OSDP_AES_BLOCK_LEN])
+{
+    (void)user;
+    return aes_block(true, key, in, out);
+}
+
+static osdp_status_t sc_decrypt(void *user, const uint8_t key[OSDP_AES_KEY_LEN],
+                                const uint8_t in [OSDP_AES_BLOCK_LEN],
+                                uint8_t       out[OSDP_AES_BLOCK_LEN])
+{
+    (void)user;
+    return aes_block(false, key, in, out);
+}
+
+/* The PD's half of the handshake nonce, RND.B.
+ *
+ * This is the one place in Secure Channel where the reader's own randomness
+ * is load-bearing: a predictable RND.B lets anyone who has recorded one
+ * session replay it. esp_fill_random() draws from the hardware RNG, which on
+ * this part is a true RNG only once either the RF subsystem or the
+ * bootloader's SAR-ADC entropy source is running, and this firmware brings
+ * up no radio. pkoc.c turns that source on for its own nonce and does it
+ * before the OSDP task starts; on a build with PKOC compiled out, bind_sc()
+ * below turns it on instead. Either way it is running well before an ACU can
+ * ask for a handshake. */
+static osdp_status_t sc_random(void *user, uint8_t *out, size_t len)
+{
+    (void)user;
+    if (out == NULL) {
+        return OSDP_ERR_INVALID_ARG;
+    }
+    esp_fill_random(out, len);
+    return OSDP_OK;
+}
+
+static const osdp_sc_crypto_t kCrypto = {
+    .aes128_ecb_encrypt = sc_encrypt,
+    .aes128_ecb_decrypt = sc_decrypt,
+    .rand_bytes         = sc_random,
+    .user               = NULL,
+};
+
+/* The cUID the ACU addresses this PD by during the handshake.
+ *
+ * Spec D.4.3 defines it as the first eight bytes of the osdp_PDID byte
+ * stream: vendor code, model, version, and the low three bytes of the serial
+ * number. Built by encoding the real PDID and taking that prefix rather than
+ * by assembling eight bytes by hand — the two must agree, and deriving one
+ * from the other is what stops them drifting when build_pdid() changes.
+ *
+ * Note what this means for CONFIG_OPENREADER_PDID_SERIAL: with the vendor
+ * code at 0x000000 and the model and version fixed, the serial is the only
+ * thing separating two readers' cUIDs. Leaving every unit on a bus at the
+ * default 1 gives them all the same one. */
+static bool build_cuid(uint8_t cuid[OSDP_SC_CUID_LEN])
+{
+    osdp_pdid_t id;
+    uint8_t     stream[OSDP_PDID_PAYLOAD_BYTES];
+    size_t      written = 0;
+
+    build_pdid(&id);
+    if (osdp_pdid_build(&id, stream, sizeof(stream), &written) != OSDP_OK ||
+        written < OSDP_SC_CUID_LEN) {
+        return false;
+    }
+    memcpy(cuid, stream, OSDP_SC_CUID_LEN);
+    return true;
+}
+
+/* Withdraw SCBK-D, so a keyed reader stops answering the published key.
+ *
+ * This reaches into the library's context instead of calling a setter,
+ * because there is no setter for it: osdp_pd_set_sc_scbk_d installs a key
+ * and nothing removes one. The struct is a public, documented type in
+ * osdp_pd.h — not an opaque handle — so the write is defined behaviour, but
+ * it is still a gap in the API rather than an intended use of it.
+ *
+ * It matters at exactly one moment and it matters a great deal. When an
+ * osdp_KEYSET lands, the spec leaves the live session running and the ACU
+ * re-handshakes when it chooses. Between those two events the PD would still
+ * accept key selector 0 — and an attacker watching the bus has just seen the
+ * one command that tells them the reader is now worth re-handshaking with a
+ * key they already know. */
+static void withdraw_scbk_d(void)
+{
+    s_pd.sc.scbk_d_set = false;
+    memset(s_pd.sc.scbk_d, 0, sizeof(s_pd.sc.scbk_d));
+}
+
+/* Decide which key this PD comes up on, and bind it.
+ *
+ * The three-way split is the whole install-mode policy in one place:
+ *
+ *   nothing stored     answer on SCBK-D so a panel can reach a fresh reader
+ *                      and give it a real key. Install mode.
+ *   a key came back    answer on that key ALONE. SCBK-D is never bound, so
+ *                      being keyed actually means something.
+ *   stored, unreadable answer on nothing at all, and say so loudly.
+ *
+ * That last case is the one worth defending. Falling back to install mode
+ * when the key store looks damaged would hand anyone who can corrupt flash a
+ * downgrade to a key printed in the specification — the reader would repair
+ * itself straight into being insecure. So an unreadable store refuses every
+ * handshake, and the only way back is the button in key_reset.h. */
+static void bind_sc(void)
+{
+#if !CONFIG_OPENREADER_PKOC
+    /* Turn on an entropy source, because on this build nothing else has.
+     *
+     * esp_random() is only a true RNG while the RF subsystem is running, and
+     * this firmware never brings up Wi-Fi or Bluetooth — so without this it
+     * returns a repeatable sequence. A predictable RND.B lets anyone who
+     * recorded one handshake replay it, which would leave the Secure Channel
+     * looking entirely healthy while providing none of what it is for.
+     *
+     * pkoc.c enables the same SAR-ADC source for the same reason, and does it
+     * before this runs, so a PKOC build must not call it a second time —
+     * regi2c_saradc_enable() behind it is reference counted. Nothing in this
+     * firmware uses the ADC, so wherever it is turned on it stays on. */
+    bootloader_random_enable();
+#endif
+
+    uint8_t cuid[OSDP_SC_CUID_LEN];
+    if (!build_cuid(cuid)) {
+        ESP_LOGE(TAG, "could not derive the cUID from the PDID; Secure "
+                      "Channel stays off");
+        return;
+    }
+
+    osdp_pd_set_sc_crypto(&s_pd, &kCrypto);
+    osdp_pd_set_sc_cuid(&s_pd, cuid);
+
+    uint8_t scbk[SC_KEY_LEN];
+    const sc_key_state_t stored = sc_key_load(scbk);
+
+    switch (stored) {
+    case SC_KEY_LOADED:
+        osdp_pd_set_sc_scbk(&s_pd, scbk);
+        withdraw_scbk_d();
+        s_sc_mode = SC_MODE_KEYED;
+        ESP_LOGI(TAG, "Secure Channel: operational SCBK loaded (%s); "
+                      "SCBK-D refused",
+                 sc_key_protection() == SC_KEY_PROT_EFUSE
+                     ? "eFuse-wrapped" : "stored in the clear");
+        break;
+
+    case SC_KEY_NONE:
+#if CONFIG_OPENREADER_SC_INSTALL_MODE
+        osdp_pd_set_sc_scbk_d(&s_pd, OSDP_SCBK_DEFAULT);
+        s_sc_mode = SC_MODE_INSTALL;
+        ESP_LOGW(TAG, "Secure Channel: INSTALL MODE — answering on SCBK-D, "
+                      "the key from spec D.4 that everyone knows. Send "
+                      "osdp_KEYSET to key this reader.");
+#else
+        s_sc_mode = SC_MODE_FAULT;
+        ESP_LOGE(TAG, "Secure Channel: no key stored and install mode is "
+                      "compiled out — this reader cannot handshake with "
+                      "anything");
+#endif
+        break;
+
+    case SC_KEY_UNREADABLE:
+    default:
+        s_sc_mode = SC_MODE_FAULT;
+        ESP_LOGE(TAG, "Secure Channel: a key is stored and will not come "
+                      "back. Refusing every handshake rather than falling "
+                      "back to SCBK-D. Hold the key-reset button to return "
+                      "this reader to install mode.");
+        break;
+    }
+
+    /* The library copied what it needs; this stack frame should not still be
+     * holding the SCBK when the next call reuses it. */
+    memset(scbk, 0, sizeof(scbk));
+}
+
+/* Put the PD's in-RAM SCBK back in step with what is actually stored.
+ *
+ * Called from the tick loop after a refused osdp_KEYSET — see
+ * s_keyset_diverged for why one can be refused and rotated at the same time.
+ * The store is the source of truth, always: what survives a power cycle is
+ * what the reader is, and anything in RAM that disagrees is the thing that
+ * is wrong.
+ *
+ * Restoring after the fact rather than preventing the rotation is safe
+ * because the rotation only affects the NEXT handshake. Any live session
+ * keeps running on session keys already derived, and the ACU cannot start a
+ * new handshake between the NAK going out and this running one tick later —
+ * that would take a round trip, and this is a millisecond away. */
+static void reconcile_scbk(void)
+{
+    uint8_t scbk[SC_KEY_LEN];
+    const sc_key_state_t stored = sc_key_load(scbk);
+
+    if (stored == SC_KEY_LOADED) {
+        osdp_pd_set_sc_scbk(&s_pd, scbk);
+        ESP_LOGW(TAG, "restored the stored SCBK after a refused osdp_KEYSET");
+    } else {
+        /* Nothing usable is stored, so the PD must not be holding a key it
+         * would handshake on. Clearing the flag is the same reach past the
+         * API as withdraw_scbk_d(), and for the same missing setter. */
+        s_pd.sc.scbk_set = false;
+        memset(s_pd.sc.scbk, 0, sizeof(s_pd.sc.scbk));
+        ESP_LOGW(TAG, "cleared the rotated SCBK after a refused osdp_KEYSET; "
+                      "nothing is stored");
+    }
+
+    memset(scbk, 0, sizeof(scbk));
+    s_keyset_diverged = false;
+}
+#endif /* CONFIG_OPENREADER_SECURE_CHANNEL */
+
 /* ---- Handlers ----------------------------------------------------------- */
 
 /* Names for the codes that can reach the default branch below, so a NAK
@@ -310,6 +617,60 @@ static osdp_status_t command_handler(void *user, uint8_t code,
         reply->payload     = NULL;
         reply->payload_len = 0;
         return OSDP_OK;
+
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+    case OSDP_CMD_KEYSET:
+        /* The ACU is giving this reader its operational key, and this is the
+         * command that ends install mode.
+         *
+         * The library rotates its own in-RAM copy once we return OSDP_OK,
+         * and persisting the key is ours — get that wrong and the reader
+         * works perfectly until the next power cycle and then never speaks
+         * to the panel again, which is the worst shape a bug can have here.
+         * So the write to flash happens first and its result decides the
+         * reply. Nothing is ACKed that is not already stored.
+         *
+         * Same validation the library will apply, in the same order, so this
+         * never persists a key the library is then going to reject. */
+        {
+            osdp_keyset_cmd_t ks;
+            if (osdp_keyset_decode(payload, len, &ks) != OSDP_OK ||
+                ks.key_type   != OSDP_KEYSET_KEY_TYPE_SCBK ||
+                ks.key_length != OSDP_SC_KEY_LEN ||
+                ks.key_data   == NULL) {
+                /* NAK 0x09, "unable to process command record" — the right
+                 * answer for a command this PD does implement carrying a
+                 * record it cannot use. Not 0x03, which would say KEYSET
+                 * itself is unknown. */
+                ESP_LOGW(TAG, "osdp_KEYSET rejected: not a 16-byte SCBK");
+                return OSDP_ERR_INVALID_ARG;
+            }
+
+            if (sc_key_store(ks.key_data) != ESP_OK) {
+                /* The flash write failed. Refuse the rotation rather than
+                 * ACK a key that will not survive the next reboot — and see
+                 * s_keyset_diverged, which cleans up after the library
+                 * having rotated its RAM copy anyway. */
+                s_keyset_diverged = true;
+                return OSDP_ERR_INVALID_ARG;
+            }
+
+            /* Stored. From here on this reader is keyed: it answers on the
+             * new SCBK and refuses the published one. The live session is
+             * deliberately left running — spec semantics are that the new
+             * key takes effect at the next handshake, which the ACU starts
+             * when it chooses. */
+            withdraw_scbk_d();
+            s_sc_mode = SC_MODE_KEYED;
+            ESP_LOGI(TAG, "osdp_KEYSET applied and stored; this reader is "
+                          "now keyed and no longer answers SCBK-D");
+
+            reply->code        = OSDP_REPLY_ACK;
+            reply->payload     = NULL;
+            reply->payload_len = 0;
+            return OSDP_OK;
+        }
+#endif /* CONFIG_OPENREADER_SECURE_CHANNEL */
 
     case OSDP_CMD_ID: {
         osdp_pdid_t id;
@@ -522,19 +883,33 @@ esp_err_t osdp_reader_init(void)
 
     bind_pdcap();
 
-    /* Secure Channel is deliberately not configured yet. Without a bound
-     * crypto vtable the PD behaves as a clear-text device and none of the
-     * SC code is even reachable — see README.md, "Adding Secure Channel",
-     * for what to add here. Do not deploy this as-is.
-     *
-     * Written out rather than left to the zero initialiser: this assignment
-     * is the line that moves to true when the osdp_pd_set_sc_* calls land
-     * above it, and it is what the reader face reads. */
-    s_sc_configured = false;
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+    /* After bind_pdcap(), and it has to be. PDCAP function code 9
+     * ("Communication Security") is one of the three records the library
+     * computes for itself, and its object count reports which key this PD is
+     * carrying — 0x00 once an operational SCBK is set, 0x01 while it is
+     * still on SCBK-D. It is recomputed on every osdp_CAP rather than cached
+     * at bind time, so the ordering here is not load-bearing for
+     * correctness; it is written this way because the reader is not really
+     * configured until its keys are. */
+    bind_sc();
+#else
+    /* Without a bound crypto vtable the PD refuses every SCB-bearing frame
+     * with NAK 0x05 and none of the SC code is reachable. That is a working
+     * clear-text device and it is not something to put on a door: anyone
+     * with access to the cable can watch a credential go past and replay it.
+     */
+    ESP_LOGE(TAG, "Secure Channel is compiled out — every credential crosses "
+                  "this bus in the clear");
+#endif
 
-    ESP_LOGI(TAG, "PD address 0x%02X, %d baud, clear text (no Secure Channel)",
+    ESP_LOGI(TAG, "PD address 0x%02X, %d baud, %s",
              (unsigned)CONFIG_OPENREADER_OSDP_ADDRESS,
-             CONFIG_OPENREADER_RS485_BAUD);
+             CONFIG_OPENREADER_RS485_BAUD,
+             s_sc_mode == SC_MODE_KEYED   ? "Secure Channel, keyed"
+             : s_sc_mode == SC_MODE_INSTALL ? "Secure Channel, INSTALL MODE"
+             : s_sc_mode == SC_MODE_FAULT   ? "Secure Channel, NO USABLE KEY"
+                                            : "clear text");
     return ESP_OK;
 }
 
@@ -668,17 +1043,112 @@ static void announce_tamper(void)
 
 /* What the reader face should say about Secure Channel.
  *
- * osdp_pd_sc_established() is the live answer and s_sc_configured supplies
- * the context it lacks: with no crypto bound the PD is not failing to
- * establish a session, it is not trying to, and those are different things
- * to put in front of whoever is standing at the door. */
+ * Two independent facts crossed: which key this PD is prepared to handshake
+ * on, and whether a session is actually up. osdp_pd_sc_established() answers
+ * only the second, and on its own it cannot tell a reader nobody has keyed
+ * from one whose key the ACU disagrees with — nor, more importantly, a real
+ * session from one wrapped under a key printed in the specification. */
 static display_sc_t secure_state(void)
 {
-    if (osdp_pd_sc_established(&s_pd)) {
-        return DISPLAY_SC_ACTIVE;
+    const bool up = osdp_pd_sc_established(&s_pd);
+
+    switch (s_sc_mode) {
+    case SC_MODE_KEYED:
+        return up ? DISPLAY_SC_ACTIVE : DISPLAY_SC_NONE;
+    case SC_MODE_INSTALL:
+        return up ? DISPLAY_SC_INSTALL_UP : DISPLAY_SC_INSTALL;
+    case SC_MODE_FAULT:
+        return DISPLAY_SC_FAULT;
+    case SC_MODE_OFF:
+    default:
+        return DISPLAY_SC_CLEAR;
     }
-    return s_sc_configured ? DISPLAY_SC_NONE : DISPLAY_SC_CLEAR;
 }
+
+#if CONFIG_OPENREADER_KEY_RESET
+/* Erase the key and restart, having watched somebody hold a button for ten
+ * seconds to ask for it.
+ *
+ * The restart is the point, not an afterthought. A live Secure Channel
+ * session is running on keys derived from an SCBK that no longer exists, and
+ * every route to unwinding that in place — clearing the session, re-binding
+ * SCBK-D, deciding what to do about the sequence number the ACU is still
+ * counting from — is a state transition this PD would then have to be
+ * correct about while a panel talks to it. Rebooting reaches the same place
+ * along a path that is exercised on every power-up. The ACU sees the reader
+ * drop and come back, which is exactly what happened.
+ *
+ * Fail loudly rather than silently: someone who held the button for ten
+ * seconds and got a beep is entitled to believe the key is gone, so if the
+ * erase did not take, nothing must look like it did. */
+static void do_key_reset(void)
+{
+    ESP_LOGW(TAG, "key reset requested from the button");
+
+    const esp_err_t err = sc_key_erase();
+
+    status_led_override(err == ESP_OK ? OSDP_LED_GREEN : OSDP_LED_RED);
+#if CONFIG_OPENREADER_BUZZER
+    buzzer_local(true);
+#endif
+    /* Long enough to be seen and heard from where the button is, and the
+     * only place in this loop that deliberately blocks. Nothing is being
+     * serviced during it — which is correct, because the PD is one second
+     * away from restarting anyway. */
+    vTaskDelay(pdMS_TO_TICKS(1500));
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "key erase FAILED (%s) — this reader is still keyed",
+                 esp_err_to_name(err));
+#if CONFIG_OPENREADER_BUZZER
+        buzzer_local(false);
+#endif
+        status_led_override(STATUS_LED_NO_OVERRIDE);
+        display_set_key_reset(DISPLAY_NO_KEY_RESET);
+        return;
+    }
+
+    ESP_LOGW(TAG, "key erased; restarting into install mode");
+    esp_restart();
+}
+
+/* Show the hold as it runs, and hand the reader back when it is abandoned.
+ *
+ * Called every tick; almost every call does nothing. The countdown is
+ * quantised to whole seconds because the panel repaints whenever its
+ * snapshot changes and a millisecond-resolution value would mean a full
+ * frame over SPI on every one of these. */
+static void show_key_reset_progress(void)
+{
+    static int last_shown = DISPLAY_NO_KEY_RESET;
+
+    const uint32_t held  = key_reset_held_ms();
+    const uint32_t total = key_reset_hold_ms();
+
+    int now = DISPLAY_NO_KEY_RESET;
+    if (held > 0) {
+        /* Rounded up, so the last whole second shows "1" rather than "0"
+         * for the second before it fires — a zero that sits there is a
+         * countdown that looks stuck. */
+        const uint32_t left = (held >= total) ? 0U : (total - held);
+        now = (int)((left + 999U) / 1000U);
+    }
+
+    if (now == last_shown) {
+        return;
+    }
+    last_shown = now;
+
+    display_set_key_reset(now);
+    status_led_override(now == DISPLAY_NO_KEY_RESET ? STATUS_LED_NO_OVERRIDE
+                                                    : OSDP_LED_AMBER);
+    if (now != DISPLAY_NO_KEY_RESET) {
+        ESP_LOGW(TAG, "key reset in %d s — release to cancel", now);
+    } else {
+        ESP_LOGI(TAG, "key reset cancelled");
+    }
+}
+#endif /* CONFIG_OPENREADER_KEY_RESET */
 
 void osdp_reader_run(void)
 {
@@ -689,6 +1159,24 @@ void osdp_reader_run(void)
     for (;;) {
         osdp_pd_tick(&s_pd);
         drain_card_queue();
+
+#if CONFIG_OPENREADER_SECURE_CHANNEL
+        /* Immediately after the tick that dispatched the refused osdp_KEYSET,
+         * and before anything else can observe the PD holding a key that is
+         * not the stored one. */
+        if (s_keyset_diverged) {
+            reconcile_scbk();
+        }
+#endif
+
+#if CONFIG_OPENREADER_KEY_RESET
+        show_key_reset_progress();
+        if (key_reset_poll()) {
+            do_key_reset();
+            /* Only reached when the erase failed; do_key_reset() restarts on
+             * success. Carry on serving the bus with the key intact. */
+        }
+#endif
 
         bool online = osdp_pd_is_online(&s_pd);
         if (online != was_online) {

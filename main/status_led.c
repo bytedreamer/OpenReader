@@ -14,6 +14,11 @@ static led_strip_handle_t s_strip;
 static bool     s_online;
 static uint8_t  s_osdp_color = OSDP_LED_BLACK;
 
+/* A local operation holding the LED, or STATUS_LED_NO_OVERRIDE. Checked
+ * before both the ACU's colour and the offline breath — see
+ * status_led_override(). */
+static int      s_override = STATUS_LED_NO_OVERRIDE;
+
 /* Full scale, because this build is a demo that has to read across a room.
  *
  * A reader mounted at a door wants this lower — the WS2812 is genuinely
@@ -102,13 +107,43 @@ static void osdp_color_to_rgb(uint8_t color, uint8_t *r, uint8_t *g,
 
 void status_led_set_osdp(uint8_t osdp_color)
 {
+    /* Recorded even when it cannot be shown, so releasing an override or
+     * coming back online restores what the ACU last asked for rather than
+     * waiting for it to ask again. */
     s_osdp_color = osdp_color;
+    if (s_override != STATUS_LED_NO_OVERRIDE) {
+        return;   /* a local operation owns the LED */
+    }
     if (!s_online) {
         return;   /* the offline animation owns the LED */
     }
     uint8_t r, g, b;
     osdp_color_to_rgb(osdp_color, &r, &g, &b);
     paint(r, g, b);
+}
+
+void status_led_override(int osdp_color)
+{
+    if (osdp_color == s_override) {
+        return;   /* every caller polls; only a change reaches the wire */
+    }
+    s_override = osdp_color;
+
+    if (s_override != STATUS_LED_NO_OVERRIDE) {
+        uint8_t r, g, b;
+        osdp_color_to_rgb((uint8_t)s_override, &r, &g, &b);
+        paint(r, g, b);
+        return;
+    }
+
+    /* Released. Hand the LED back to whichever owner should have it: the
+     * ACU's last colour while online, and otherwise nothing — status_led_tick
+     * repaints the breath on its own within a frame. */
+    if (s_online) {
+        uint8_t r, g, b;
+        osdp_color_to_rgb(s_osdp_color, &r, &g, &b);
+        paint(r, g, b);
+    }
 }
 
 void status_led_set_link(bool online)
@@ -126,7 +161,7 @@ void status_led_set_link(bool online)
 
 void status_led_tick(void)
 {
-    if (s_online) {
+    if (s_override != STATUS_LED_NO_OVERRIDE || s_online) {
         return;
     }
     /* A ~2 s triangle breath in blue. Distinct at a glance from any colour

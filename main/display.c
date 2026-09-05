@@ -214,10 +214,16 @@ typedef struct {
     bool         has_card;
     credential_t card;
     uint32_t     read_ms;    /* uptime when the card was read */
+    int8_t       key_reset;  /* seconds left, or DISPLAY_NO_KEY_RESET */
 } face_t;
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
-static face_t       s_face;
+
+/* Every other member's "nothing yet" is zero; the key-reset countdown's is
+ * not, and a zeroed one would mean "erasing now". Initialised here rather
+ * than in display_init() so it cannot depend on the order two modules happen
+ * to start in. */
+static face_t       s_face = { .key_reset = DISPLAY_NO_KEY_RESET };
 
 void display_set_link(bool online)
 {
@@ -237,6 +243,13 @@ void display_set_secure(display_sc_t state)
 {
     portENTER_CRITICAL(&s_lock);
     s_face.sc = (uint8_t)state;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+void display_set_key_reset(int seconds_left)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_face.key_reset = (int8_t)seconds_left;
     portEXIT_CRITICAL(&s_lock);
 }
 
@@ -300,14 +313,20 @@ static void draw_row(int y, const char *label, const char *value,
     }
 }
 
-/* Clear text is drawn in the warning colour rather than the neutral one. It
- * is the correct state for this build — no crypto vtable is bound — but it
- * is not a state anything should be deployed in, and a face that showed it
- * as calmly as the baud rate would be helping it go unnoticed. */
+/* Exactly one of these is drawn in the neutral "this is fine" colour, and it
+ * is the only one that has earned it.
+ *
+ * Clear text is the correct state for a build with no crypto bound, and the
+ * install states are the correct state for a reader that has not been keyed
+ * yet — but none of the three is a state anything should be left in on a
+ * door, and a face that showed them as calmly as the baud rate would be
+ * helping them go unnoticed. So they are all drawn as warnings, and the
+ * gloss beside each says which of them this is. */
 static void draw_secure_row(const face_t *f)
 {
     const char *value;
-    uint16_t    color;
+    const char *note  = NULL;
+    uint16_t    color = C_WARN;
 
     switch (f->sc) {
     case DISPLAY_SC_ACTIVE:
@@ -315,19 +334,40 @@ static void draw_secure_row(const face_t *f)
         color = C_OK;
         break;
     case DISPLAY_SC_NONE:
-        /* Keys are configured and the ACU has not established a session:
-         * almost always an SCBK mismatch, occasionally an ACU that has not
-         * been told to use Secure Channel at all. */
+        /* Keyed, and the ACU has not established a session: almost always an
+         * SCBK mismatch, occasionally an ACU that has not been told to use
+         * Secure Channel at all. */
         value = "NO SESSION";
-        color = C_WARN;
+        break;
+    case DISPLAY_SC_INSTALL:
+        /* Waiting to be keyed. The gloss names the key rather than saying
+         * "default", because SCBK-D is the term the panel's own
+         * documentation will use for the thing to send osdp_KEYSET over. */
+        value = "INSTALL";
+        note  = "SCBK-D";
+        break;
+    case DISPLAY_SC_INSTALL_UP:
+        /* A session is up, wrapped under a key from the specification. The
+         * word that matters here is not SECURE, which is what the mechanism
+         * would say, but that the key is public — so the gloss says so and
+         * the colour stays a warning. */
+        value = "INSTALL";
+        note  = "OPEN KEY";
+        break;
+    case DISPLAY_SC_FAULT:
+        /* Something is stored and it would not come back. Deliberately not
+         * shown as INSTALL: the reader is refusing SCBK-D, so an installer
+         * told it was in install mode would spend the afternoon on a
+         * handshake that is never going to complete. See sc_key.h. */
+        value = "KEY FAULT";
+        color = C_BAD;
         break;
     case DISPLAY_SC_CLEAR:
     default:
         value = "CLEAR TEXT";
-        color = C_WARN;
         break;
     }
-    draw_row(LINK_ROW_Y(2), "SECURE CHANNEL", value, color, NULL);
+    draw_row(LINK_ROW_Y(2), "SECURE CHANNEL", value, color, note);
 }
 
 /* The card panel.
@@ -427,10 +467,51 @@ static void draw_card_panel(const face_t *f)
     draw_text(CARD_X + 10, CARD_Y + 34, row, 1, C_TEXT);
 }
 
+/* The whole screen, while the key-reset button is held.
+ *
+ * Written to be read by someone whose finger is on the button and who wants
+ * to know two things: that the press is registering, and how long until it
+ * is too late to change their mind. The count is the largest thing on the
+ * panel for that second reason — this is a destructive operation with an
+ * undo that lasts exactly as long as the number is still counting.
+ *
+ * Deliberately says KEY RESET and not FACTORY RESET. Nothing else is
+ * touched: the address, the baud rate and every other setting are build-time
+ * and survive, and someone who believed they were clearing the whole device
+ * would be surprised in both directions. */
+static void render_key_reset(const face_t *f)
+{
+    char count[4];
+
+    fill_rect(0, 0, LCD_W, LCD_H, C_BG);
+
+    draw_text_centered(60, "KEY RESET", 2, C_WARN);
+    draw_text_centered(84, "HOLD TO CONFIRM", 1, C_MUTED);
+
+    snprintf(count, sizeof(count), "%d", f->key_reset > 0 ? f->key_reset : 0);
+    draw_text_centered(130, count, 6, C_BAD);
+
+    draw_text_centered(196, "RELEASE TO", 1, C_MUTED);
+    draw_text_centered(208, "CANCEL", 1, C_MUTED);
+
+    /* What is about to be lost, in the terms the installer will next have to
+     * act in: the reader goes back to answering the published install key,
+     * and the panel has to re-key it. */
+    fill_round_rect(10, 240, LCD_W - 20, 44, C_PANEL);
+    stroke_rect(10, 240, LCD_W - 20, 44, C_LINE);
+    draw_text_centered(250, "ERASES THE SCBK", 1, C_TEXT);
+    draw_text_centered(266, "BACK TO SCBK-D", 1, C_WARN);
+}
+
 static void render_frame(const face_t *f)
 {
     char line[32];
     char note[8];
+
+    if (f->key_reset != DISPLAY_NO_KEY_RESET) {
+        render_key_reset(f);
+        return;
+    }
 
     fill_rect(0, 0, LCD_W, LCD_H, C_BG);
 
