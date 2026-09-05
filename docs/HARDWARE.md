@@ -547,9 +547,29 @@ every byte you transmit arrives straight back on RX.
 direction, so it recognises its own replies as replies and drops them. Echo
 costs some wasted buffer churn, nothing more.
 
-But if you would rather not have it, find out which kind of board you have.
-With the SH-U12 wired and the A/B lines going nowhere, add this to
-`app_main()` temporarily:
+**Measured on the reference build:** the DSD TECH SH-U12 *does* echo, and the
+reader works against a real panel with suppression left off. So if that is
+the transceiver you are using, you already have the answer — you do not need
+to measure anything, and you do not need to turn suppression on.
+
+You also do not need to add probe code to find out, because the reader
+already performs this exact test on its own. While it is not being polled it
+reports its wire counters every five seconds, and a reader that has never
+received anything transmits a bus marker first and then reports what came
+back:
+
+```
+W osdp: offline: rx=0 tx=0 — nothing received yet; emitting bus marker A5 5A A5 5A
+W osdp: offline: rx=4 tx=4  first bytes: A5 5A A5 5A
+```
+
+`tx=4` with `rx=4` and the marker pattern coming straight back is an echo:
+four bytes went out, those same four came in. A board that does not echo
+sits at `rx=0` and reports `nothing received yet` on every pass.
+
+If you would rather measure it directly — a different transceiver, or you
+want to see it without the OSDP layer in the way — add this to `app_main()`
+temporarily:
 
 ```c
 const char *probe = "ECHO?";

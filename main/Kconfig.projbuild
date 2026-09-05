@@ -377,6 +377,12 @@ menu "OpenReader"
             does not echo and this is on, it will eat the first bytes of the
             ACU's next command and the PD will never answer a poll.
 
+            Measured on the reference build: the DSD TECH SH-U12 does echo,
+            and the reader works against a real panel with this left off.
+            The stream decoder recognises the PD's own replies as replies
+            and drops them, so an echo costs buffer churn and nothing else.
+            You do not need this unless you want the churn gone.
+
     config OPENREADER_CARD_REPEAT_MS
         int "Ignore the same card for this many milliseconds"
         default 2000

@@ -1010,6 +1010,8 @@ idf.py build flash monitor</code></pre>
         <h3><span class="n">5.3</span>Does your transceiver echo?</h3>
         <p>Some auto-direction transceivers leave the receiver enabled while driving the line, so every byte you transmit arrives straight back on RX.</p>
         <p><strong>This is not fatal either way.</strong> The OSDP library filters frames by direction, so it recognises its own replies as replies and drops them. Echo costs some wasted buffer churn, nothing more.</p>
+        <p><strong>Measured on the reference build:</strong> the SH-U12 <em>does</em> echo, and the reader works against a real panel with suppression left off. If that is your transceiver you already have the answer, and you need not turn suppression on.</p>
+        <p>You also need not add probe code to find out, because the reader tests this itself. While nothing is polling it, it reports its wire counters every five seconds &mdash; and on a reader that has never received anything it first transmits a bus marker, then reports what came back. <code>tx=4</code> alongside <code>rx=4</code> with <code>A5 5A A5 5A</code> as the first bytes is an echo: four bytes went out and those same four came in. A board that does not echo stays at <code>rx=0</code>.</p>
         <p>But if you would rather not have it, find out which kind of board you have. With the SH-U12 wired and A/B going nowhere, add this to <code>app_main()</code> temporarily:</p>
         <pre><code>const char *probe = "ECHO?";
 uart_write_bytes(BOARD_RS485_UART, probe, strlen(probe));
