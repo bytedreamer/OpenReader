@@ -10,12 +10,15 @@ this repository is the hardware, the drivers and the device logic around it.
 
 **Want to build one?** The build guide has the parts list, the wiring, the
 resistor colour codes and a bring-up sequence that tells you where to look
-when something is wrong. Two formats, same content:
+when something is wrong. Two formats, same content — and the bench build
+drawn:
 
 - **[docs/build-guide.html](docs/build-guide.html)** — open in a browser.
   Rendered wiring diagrams and colour-band charts; the nicer read.
 - **[docs/HARDWARE.md](docs/HARDWARE.md)** — plain Markdown. Renders on
   GitHub, diffs cleanly, greps.
+- **[docs/breadboard.svg](docs/breadboard.svg)** — the bench build drawn
+  as a breadboard: every wire in one picture. It appears in both guides above.
 
 ---
 
@@ -27,25 +30,6 @@ when something is wrong. Two formats, same content:
 | Bus | DSD TECH SH-U12, MAX13487 auto-direction RS-485 transceiver |
 | Credential | SunFounder RC522 (MFRC522), ISO/IEC 14443-A over SPI — UIDs and PKOC |
 | Reader LED | The board's onboard WS2812, driven by the ACU's `osdp_LED` |
-
-## Status
-
-| | |
-| - | - |
-| ✅ | PD state machine on RS-485: polls, sequencing, online/offline tracking |
-| ✅ | `osdp_ID` / `osdp_CAP` identity and capability reporting |
-| ✅ | Card reads reported as `osdp_RAW` on the next poll |
-| ✅ | **PKOC 1.1** — the card signs a nonce, the reader verifies it, the credential follows |
-| ✅ | `osdp_LED` driving the RGB LED; `osdp_BUZ` driving a fitted sounder |
-| ✅ | `osdp_LSTAT` / `ISTAT` / `OSTAT` / `RSTAT` status reporting |
-| ✅ | **Secure Channel (SC1)** — AES-128 on the chip's accelerator, install mode by default |
-| ✅ | `osdp_KEYSET` key rotation, persisted across power loss and wrapped to the chip |
-| ✅ | Physical key reset — hold BOOT for 10 s to return the reader to install mode |
-| ✅ | LCD reader face — link speed, address, Secure Channel state, card panel |
-| ✅ | LCD and RC522 together — the reader is clocked in software so the panel keeps SPI2 |
-| ✅ | Restart reported to the ACU on the first poll (unsolicited `osdp_LSTATR`) |
-| ✅ | Audible output — an active sounder on GP5, driven by `osdp_BUZ` |
-| ✅ | Tamper switch input on GP4 — reported in `osdp_LSTATR`, unsolicited on change |
 
 ## Building
 

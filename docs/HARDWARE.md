@@ -191,6 +191,19 @@ The onboard peripherals already claim GPIO 4, 5, 6, 7, 8, 14, 15, 21 and 22.
 GPIO 12/13 are the native USB pins and GPIO 9 is the BOOT strap, so all of
 those are off limits too. Everything below is chosen from what remains.
 
+### The bench build, drawn
+
+![The OpenReader bench build on a full-size breadboard: MB102 supply at the
+left end, the DSD TECH SH-U12 RS-485 module, the SunFounder RC522 card reader,
+the Waveshare ESP32-C6-LCD-1.47, and the 1 kΩ/2 kΩ divider on the
+transceiver's TXD line.](breadboard.svg)
+
+Every connection in the tables below, in one picture —
+[breadboard.svg](breadboard.svg), best opened on its own at full size. It is
+drawn by [`breadboard.py`](breadboard.py), so change that and regenerate it
+rather than editing the SVG. The tables and [`main/board.h`](../main/board.h)
+remain the authority; the drawing follows them.
+
 ### Why not the pins labelled TX and RX?
 
 The header's `TX`/`RX` are **GPIO16/GPIO17** — UART0's default mapping, which

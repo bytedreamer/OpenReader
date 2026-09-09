@@ -370,7 +370,8 @@ figure {
   border-radius: 3px;
   overflow-x: auto;
 }
-figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figure svg,
+figure img { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 figcaption {
   font-size: .85rem;
   color: var(--ink-soft);
@@ -819,6 +820,11 @@ pre code { background: none; padding: 0; font-size: inherit; }
     <h2>Wiring</h2>
     <div class="sec-body">
       <p>The onboard peripherals already claim GPIO 4, 5, 6, 7, 8, 14, 15, 21 and 22. GPIO 12/13 are the native USB pins and GPIO 9 is the BOOT strap, so those are off limits too. Everything below is chosen from what remains. Strapping pins on the ESP32-C6 are GPIO 4, 5, 8, 9 and 15 — nothing here uses one.</p>
+
+      <figure>
+        <img src="breadboard.svg" alt="The OpenReader bench build on a full-size breadboard: MB102 supply at the left end, the DSD TECH SH-U12 RS-485 module, the SunFounder RC522 card reader, the Waveshare ESP32-C6-LCD-1.47, and the 1 kilohm / 2 kilohm divider on the transceiver's TXD line.">
+        <figcaption>The bench build as it sits: every connection in the tables below, in one picture. <a href="breadboard.svg">Open it on its own</a> for the full-size version. The pin tables and <code>main/board.h</code> stay the authority — the drawing follows them.</figcaption>
+      </figure>
 
       <h3>Why not the pins labelled TX and RX?</h3>
       <p>The header's <span class="pin">TX</span>/<span class="pin">RX</span> are <strong>GPIO16/GPIO17</strong> — UART0's default mapping, which is what the silkscreen is naming. They really are free: this board has no USB-UART bridge chip, so flashing and the console both ride the ESP32-C6's native USB on GPIO12/13, and nothing is holding UART0.</p>
