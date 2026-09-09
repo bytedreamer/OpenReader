@@ -1028,19 +1028,19 @@
 <rect x="286" y="364" width="52" height="34" rx="2" fill="#141414" stroke="#000"/>
 <text x="312" y="384" font-size="6.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#8E959C" text-anchor="middle">MAX13487</text>
 <text transform="translate(276,452) rotate(-90)" font-size="10" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">SH-U12</text>
-<text transform="translate(284,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">VCC</text>
-<text transform="translate(300,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">TXD</text>
-<text transform="translate(316,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">RXD</text>
-<text transform="translate(332,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">GND</text>
+<text transform="translate(286,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">VCC</text>
+<text transform="translate(302,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">TXD</text>
+<text transform="translate(318,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">RXD</text>
+<text transform="translate(334,488) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#DCE6F2">GND</text>
 <g filter="url(#soft)"><rect x="378" y="272" width="100" height="112" rx="5" fill="#1B4F8A" stroke="#123661" stroke-width=".9"/></g>
 <rect x="409.0" y="379.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
 <rect x="425.0" y="379.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
 <rect x="441.0" y="379.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
 <circle cx="428" cy="308" r="26" fill="#141414" stroke="#000"/>
 <circle cx="428" cy="308" r="4.5" fill="#3A3A3A"/>
-<text transform="translate(412,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">VCC</text>
-<text transform="translate(428,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">IO</text>
-<text transform="translate(444,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">GND</text>
+<text transform="translate(415,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">VCC</text>
+<text transform="translate(431,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">IO</text>
+<text transform="translate(447,378) rotate(-90)" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#CFE0F2">GND</text>
 <text x="428" y="264" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#5A6069" text-anchor="middle">active sounder</text>
 <g filter="url(#soft)"><rect x="534" y="100" width="189" height="284" rx="5" fill="#A62C2A" stroke="#6E1B1A" stroke-width=".9"/></g>
 <rect x="569.0" y="379.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
@@ -1058,14 +1058,14 @@
 <text x="607" y="312" font-size="6.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#8E959C" text-anchor="middle">MFRC522</text>
 <rect x="646" y="294" width="30" height="16" rx="3" fill="#B7BCC2" stroke="#7C838A"/>
 <text x="550" y="348" font-size="10" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">RC522</text>
-<text transform="translate(572,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">SDA</text>
-<text transform="translate(588,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">SCK</text>
-<text transform="translate(604,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">MOSI</text>
-<text transform="translate(620,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">MISO</text>
-<text transform="translate(636,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">IRQ</text>
-<text transform="translate(652,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">GND</text>
-<text transform="translate(668,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">RST</text>
-<text transform="translate(684,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">3.3V</text>
+<text transform="translate(574,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">SDA</text>
+<text transform="translate(590,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">SCK</text>
+<text transform="translate(606,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">MOSI</text>
+<text transform="translate(622,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">MISO</text>
+<text transform="translate(638,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">IRQ</text>
+<text transform="translate(654,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">GND</text>
+<text transform="translate(670,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">RST</text>
+<text transform="translate(686,376) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#F3DAD9">3.3V</text>
 <g filter="url(#soft)"><rect x="911" y="408" width="218" height="128" rx="6" fill="#17181A" stroke="#000" stroke-width=".8"/></g>
 <rect x="953.0" y="411.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
 <rect x="969.0" y="411.0" width="6" height="10" rx="1.5" fill="#C9A227" stroke="#8A6E12" stroke-width=".7"/>
@@ -1088,32 +1088,32 @@
 <rect x="1124" y="461" width="12" height="22" rx="5" fill="#C6CBD1" stroke="#8A9098"/>
 <path d="M1136,472 h44" stroke="#5A6069" stroke-width="7" stroke-linecap="round"/>
 <text x="1151" y="400" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#7A828A" text-anchor="middle">USB-C</text>
-<rect x="947" y="436" width="146" height="62" rx="3" fill="url(#lcd)" stroke="#33383F"/>
-<text x="955" y="452" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#8FE3A8">OSDP  ONLINE</text>
-<text x="955" y="465" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#7FA8D8">9600  ADDR 0</text>
-<text x="955" y="478" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D8C77F">SC  ACTIVE</text>
-<text x="955" y="491" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#5C6672">present a card</text>
+<rect x="947" y="444" width="146" height="58" rx="3" fill="url(#lcd)" stroke="#33383F"/>
+<text x="955" y="456" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#8FE3A8">OSDP  ONLINE</text>
+<text x="955" y="469" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#7FA8D8">9600  ADDR 0</text>
+<text x="955" y="482" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D8C77F">SC  ACTIVE</text>
+<text x="955" y="495" font-size="8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#5C6672">present a card</text>
 <rect x="923" y="518" width="11" height="11" rx="2" fill="#EFF2F5" stroke="#9AA0A6"/>
 <circle cx="928.5" cy="523.5" r="3" fill="#3DDC6A"/>
-<text transform="translate(956,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP9</text>
-<text transform="translate(972,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP18</text>
-<text transform="translate(988,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP19</text>
-<text transform="translate(1004,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP20</text>
-<text transform="translate(1020,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP23</text>
-<text transform="translate(1036,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP12</text>
-<text transform="translate(1052,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP13</text>
-<text transform="translate(1068,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">RX</text>
-<text transform="translate(1084,434) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">TX</text>
-<text transform="translate(956,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP5</text>
-<text transform="translate(972,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP4</text>
-<text transform="translate(988,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP3</text>
-<text transform="translate(1004,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP2</text>
-<text transform="translate(1020,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP1</text>
-<text transform="translate(1036,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP0</text>
-<text transform="translate(1052,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">3V3</text>
-<text transform="translate(1068,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GND</text>
-<text transform="translate(1084,531) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">5V</text>
-<text x="947" y="430" font-size="7.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#6E757D">ESP32-C6-LCD-1.47</text>
+<text transform="translate(958,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP9</text>
+<text transform="translate(974,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP18</text>
+<text transform="translate(990,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP19</text>
+<text transform="translate(1006,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP20</text>
+<text transform="translate(1022,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP23</text>
+<text transform="translate(1038,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP12</text>
+<text transform="translate(1054,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP13</text>
+<text transform="translate(1070,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">RX</text>
+<text transform="translate(1086,440) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">TX</text>
+<text transform="translate(958,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP5</text>
+<text transform="translate(974,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP4</text>
+<text transform="translate(990,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP3</text>
+<text transform="translate(1006,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP2</text>
+<text transform="translate(1022,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP1</text>
+<text transform="translate(1038,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GP0</text>
+<text transform="translate(1054,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">3V3</text>
+<text transform="translate(1070,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">GND</text>
+<text transform="translate(1086,521) rotate(-90)" font-size="6.8" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#D9DDE1">5V</text>
+<text transform="translate(935,502) rotate(-90)" font-size="7.5" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" fill="#6E757D">ESP32-C6-LCD-1.47</text>
 <g filter="url(#lift)"><path d="M524.0,608.0 L524.0,320.0" fill="none" stroke="#111214" stroke-width="7.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M524.0,608.0 L524.0,320.0" fill="none" stroke="#2A2C30" stroke-width="5.0" stroke-linecap="round" stroke-linejoin="round"/><path d="M524.0,608.0 L524.0,320.0" fill="none" stroke="#FFF" stroke-width="1.1" opacity=".26" stroke-linecap="round" stroke-linejoin="round"/></g>
 <circle cx="524.0" cy="608.0" r="2.6" fill="#BBBFC4" stroke="#6E7378" stroke-width=".7"/>
 <circle cx="524.0" cy="320.0" r="2.6" fill="#BBBFC4" stroke="#6E7378" stroke-width=".7"/>

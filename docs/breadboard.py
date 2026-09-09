@@ -264,8 +264,11 @@ def pads(cols, row):
                      'stroke="#8A6E12" stroke-width=".7"/>' % (cx(c) - 3, ROW[row] - 5) for c in cols)
 
 def vlab(cols, names, y, colour='#D9DDE1', size=6.8):
+    # rotate(-90) hangs the glyphs to the LEFT of the anchor, so a label placed
+    # straight on cx() sits half a cap height off its column.  Nudge it back.
+    off = int(round(size * 0.35))
     return '\n'.join('<text transform="translate(%d,%d) rotate(-90)" font-size="%s" '
-                     'font-family="%s" fill="%s">%s</text>' % (cx(c), y, size, MONO, colour, n)
+                     'font-family="%s" fill="%s">%s</text>' % (cx(c) + off, y, size, MONO, colour, n)
                      for c, n in zip(cols, names))
 
 MODULES = []
@@ -374,17 +377,17 @@ dev = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="6"
        % (DX1 + 7, (DY0 + DY1) / 2),
        '<text x="%d" y="%d" font-size="8" font-family="%s" fill="#7A828A" text-anchor="middle">'
        'USB-C</text>' % (DX1 + 22, DY0 - 8, MONO),
-       '<rect x="%d" y="436" width="146" height="62" rx="3" fill="url(#lcd)" stroke="#33383F"/>' % (DX0 + 36),
-       '<text x="%d" y="452" font-size="8" font-family="%s" fill="#8FE3A8">OSDP  ONLINE</text>' % (DX0 + 44, MONO),
-       '<text x="%d" y="465" font-size="8" font-family="%s" fill="#7FA8D8">9600  ADDR 0</text>' % (DX0 + 44, MONO),
-       '<text x="%d" y="478" font-size="8" font-family="%s" fill="#D8C77F">SC  ACTIVE</text>' % (DX0 + 44, MONO),
-       '<text x="%d" y="491" font-size="8" font-family="%s" fill="#5C6672">present a card</text>' % (DX0 + 44, MONO),
+       '<rect x="%d" y="444" width="146" height="58" rx="3" fill="url(#lcd)" stroke="#33383F"/>' % (DX0 + 36),
+       '<text x="%d" y="456" font-size="8" font-family="%s" fill="#8FE3A8">OSDP  ONLINE</text>' % (DX0 + 44, MONO),
+       '<text x="%d" y="469" font-size="8" font-family="%s" fill="#7FA8D8">9600  ADDR 0</text>' % (DX0 + 44, MONO),
+       '<text x="%d" y="482" font-size="8" font-family="%s" fill="#D8C77F">SC  ACTIVE</text>' % (DX0 + 44, MONO),
+       '<text x="%d" y="495" font-size="8" font-family="%s" fill="#5C6672">present a card</text>' % (DX0 + 44, MONO),
        '<rect x="%d" y="%d" width="11" height="11" rx="2" fill="#EFF2F5" stroke="#9AA0A6"/>' % (DX0 + 12, DY1 - 18),
        '<circle cx="%.1f" cy="%.1f" r="3" fill="#3DDC6A"/>' % (DX0 + 17.5, DY1 - 12.5),
-       vlab(dcols, dtop, DY0 + 26),
-       vlab(dcols, dbot, DY1 - 5),
-       '<text x="%d" y="%d" font-size="7.5" font-family="%s" fill="#6E757D">ESP32-C6-LCD-1.47</text>'
-       % (DX0 + 36, DY0 + 22, MONO)]
+       vlab(dcols, dtop, DY0 + 32),
+       vlab(dcols, dbot, DY1 - 15),
+       '<text transform="translate(%d,%d) rotate(-90)" font-size="7.5" font-family="%s" '
+       'fill="#6E757D">ESP32-C6-LCD-1.47</text>' % (DX0 + 24, DY1 - 34, MONO)]
 MODULES.append(dev)
 
 for part in MODULES:
