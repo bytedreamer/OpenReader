@@ -1,6 +1,6 @@
 # OpenReader
 
-An OSDP v2.2.2 access control reader on a $16 dev board.
+An fully functional OSDP v2.2.2 access control reader with about 50 USD in components.
 
 OpenReader is a **PD** (Peripheral Device) — the reader at the door. It sits
 on an RS-485 bus, answers polls from an access control unit, reports card
