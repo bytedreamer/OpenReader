@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
 """Generate docs/breadboard.svg - OpenReader bench build, breadboard view.
 
-Full-size 830-point breadboard.  MB102 supply at the left end, ESP32-C6 at the
-right with its USB-C facing off the end of the board.  The ESP32-C6's headers
-are 0.7 in apart, so it plugs into rows C and H and leaves two usable hole rows
-on each side (A/B below, I/J above).
+Full-size breadboard, 65 columns.  MB102 supply at the left end, ESP32-C6 at
+the right, bottom row on columns 57-65 so its USB-C faces off the end of the
+board.  The ESP32-C6's headers are 0.7 in apart, so it plugs into rows C and H
+and leaves two usable hole rows on each side (A/B below, I/J above).
 
 Waveshare's pinout drawing is a bottom view.  Seen from above with the USB-C to
 the right, 5V/GND/3V3/GP0-GP5 are on the BOTTOM row and GP9..TX on the top, so
-the RS-485 side, the divider and the sounder live in the bottom half and the
-bottom rails carry 5 V; the RC522 hangs off the top edge and takes 3.3 V from
+the RS-485 side and the divider live in the bottom half and the bottom rails
+carry 5 V; the RC522 and the sounder hang off the top edge and take 3.3 V from
 the top rails.
 
-The power rails on a board this size are split in the middle.  The MB102 only
-feeds the left halves, so four bridging jumpers carry each rail across the gap
-and a fifth ties the two ground rails together at column 14.
+The power rails run the full length of this board, so the MB102 feeds all four
+of them on its own.  One jumper at column 30 ties the two ground rails together.
 
 Every connection is one jumper, routed round the modules rather than straight,
 and coloured by the length you would pull from the 14-value kit to make it.
@@ -22,17 +21,17 @@ Geometry is on a 16 px = 0.1 in grid.
 """
 import io, math, os, re
 
-P, X0, NCOL = 16, 60, 63
+P, X0, NCOL = 16, 60, 65
 def cx(c): return X0 + (c - 1) * P
 
-BX0, BX1, BY0, BY1 = 30, 1082, 288, 656
+BX0, BX1, BY0, BY1 = 30, 1114, 288, 656
 
 ROW = {'J': 384, 'I': 400, 'H': 416, 'G': 432, 'F': 448,
        'E': 496, 'D': 512, 'C': 528, 'B': 544, 'A': 560}
-RAIL = {('t', '+'): 320, ('t', '-'): 336, ('b', '+'): 608, ('b', '-'): 624}
-RAIL_LINE = {('t', '+'): 308, ('t', '-'): 348, ('b', '+'): 596, ('b', '-'): 636}
-RAIL_COLS = [c for g in range(10) for c in range(2 + 6 * g, 2 + 6 * g + 5)]
-SPLIT = (30, 32)
+RAIL = {('t', '-'): 320, ('t', '+'): 336, ('b', '-'): 608, ('b', '+'): 624}
+RAIL_LINE = {('t', '-'): 308, ('t', '+'): 348, ('b', '-'): 596, ('b', '+'): 636}
+RAIL_COLS = [c for g in range(11) for c in range(2 + 6 * g, 2 + 6 * g + 5)
+             if c <= NCOL]
 
 def h(row, col): return (cx(col), ROW[row])
 def rl(half, sign, col): return (cx(col), RAIL[(half, sign)])
@@ -59,7 +58,7 @@ O = io.StringIO()
 def w(s): O.write(s + '\n')
 
 MONO = 'ui-monospace, SFMono-Regular, Consolas, monospace'
-W, H = 1124, 1000
+W, H = 1200, 1000
 
 w('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" '
   'font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">' % (W, H, W, H))
@@ -74,7 +73,9 @@ w('<linearGradient id="lcd" x1="0" y1="0" x2="1" y2="1">'
   '<stop offset="0" stop-color="#1B2430"/><stop offset="1" stop-color="#0A0E14"/></linearGradient>')
 w('<filter id="soft" x="-30%" y="-30%" width="160%" height="160%">'
   '<feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-opacity="0.30"/></filter>')
-w('<filter id="lift" x="-40%" y="-60%" width="180%" height="240%">'
+# objectBoundingBox filter regions collapse on a straight wire (zero-width or
+# zero-height bbox) and the wire vanishes, so give this one the whole canvas.
+w('<filter id="lift" filterUnits="userSpaceOnUse" x="0" y="0" width="%d" height="%d">' % (W, H) +
   '<feDropShadow dx="0" dy="2.5" stdDeviation="1.8" flood-opacity="0.28"/></filter>')
 w('</defs>')
 w('<rect width="%d" height="%d" fill="#FBFAF7"/>' % (W, H))
@@ -95,20 +96,15 @@ w('<rect x="%d" y="458" width="%d" height="28" rx="2" fill="url(#chan)"/>' % (BX
 w('<line x1="%d" y1="458" x2="%d" y2="458" stroke="#BCB5A2"/>' % (BX0 + 8, BX1 - 8))
 w('<line x1="%d" y1="486" x2="%d" y2="486" stroke="#DAD4C4"/>' % (BX0 + 8, BX1 - 8))
 
-gap0, gap1 = cx(SPLIT[0]) + 10, cx(SPLIT[1]) - 10
 for half in ('t', 'b'):
     for sign, colr in (('+', '#D0342C'), ('-', '#2B5FCB')):
         y = RAIL_LINE[(half, sign)]
-        for x1, x2 in ((cx(2) - 14, gap0), (gap1, cx(60) + 14)):
-            w('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1.6" opacity=".85"/>'
-              % (x1, y, x2, y, colr))
+        w('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1.6" opacity=".85"/>'
+          % (cx(2) - 14, y, cx(NCOL) + 14, y, colr))
         sym = '+' if sign == '+' else '&#8211;'
-        for x in (cx(2) - 23, cx(60) + 23):
+        for x in (cx(2) - 23, cx(NCOL) + 23):
             w('<text x="%d" y="%.1f" font-size="13" font-weight="700" fill="%s" text-anchor="middle">'
               '%s</text>' % (x, y + 4.5, colr, sym))
-for y0, y1 in ((300, 356), (588, 644)):
-    w('<rect x="%d" y="%d" width="%d" height="%d" fill="#DCD6C6" opacity=".9"/>'
-      % (gap0 + 4, y0, gap1 - gap0 - 8, y1 - y0))
 
 def hole(x, y):
     return ('<rect x="%.1f" y="%.1f" width="9" height="9" rx="1.4" fill="#D6D0BF"/>'
@@ -133,10 +129,10 @@ for c in [1] + list(range(5, NCOL + 1, 5)):
     w('<text x="%d" y="358" font-size="8.5" fill="#A69F8D" text-anchor="middle" '
       'font-family="%s">%d</text>' % (cx(c), MONO, c))
 
-for txt, y, colr in (('3.3 V', 324, '#D0342C'), ('GND', 340, '#2B5FCB'),
-                     ('5 V', 612, '#D0342C'), ('GND', 628, '#2B5FCB')):
+for half, sign, txt in (('t', '+', '3.3 V'), ('t', '-', 'GND'),
+                        ('b', '+', '5 V'), ('b', '-', 'GND')):
     w('<text x="%d" y="%d" font-size="10.5" font-weight="700" fill="%s" font-family="%s">%s</text>'
-      % (BX1 + 10, y, colr, MONO, txt))
+      % (BX1 + 10, RAIL[(half, sign)] + 4, '#D0342C' if sign == '+' else '#2B5FCB', MONO, txt))
 
 # ------------------------------------------------------------------- jumpers
 # Each entry is one wire: a list of points, bent round whatever is in the way.
@@ -144,34 +140,36 @@ JUMPERS, LATE = [], []
 def J(net, pts, tag=True, late=False):
     (LATE if late else JUMPERS).append((net, pts, tag))
 
-# --- rails: bridge the split, tie the grounds ----------------------------
-for half, sign in (('t', '+'), ('t', '-'), ('b', '+'), ('b', '-')):
-    J('bridge', [rl(half, sign, SPLIT[0]), rl(half, sign, SPLIT[1])], False, True)
-J('GND', [rl('b', '-', 14), rl('t', '-', 14)], True, True)
+# --- rails: tie the grounds ----------------------------------------------
+J('GND', [rl('b', '-', 30), rl('t', '-', 30)], True, True)
 
 # --- power ---------------------------------------------------------------
-J('5V',  [h('A', 60), rl('b', '+', 60)], False, True)     # ESP32-C6 5V
-J('GND', [h('A', 59), rl('b', '-', 59)], False, True)     # ESP32-C6 GND
-J('5V',  [h('A', 17), rl('b', '+', 17)], False, True)     # SH-U12 VCC
+J('5V',  [h('A', 65), rl('b', '+', 65)], False, True)     # ESP32-C6 5V
+J('GND', [h('B', 64), rl('b', '-', 64)], False, True)     # ESP32-C6 GND
+J('5V',  [h('A', 15), rl('b', '+', 15)], False, True)     # SH-U12 VCC
 J('GND', [h('A', 18), rl('b', '-', 18)], False, True)     # SH-U12 GND
-J('GND', [h('D', 29), (cx(26), 512), rl('b', '-', 26)], False, True)   # sounder -
+J('3V3', [h('I', 23), (cx(23), 408), (cx(28), 408),
+          rl('t', '+', 28)], False, True)                              # sounder VCC
+J('GND', [h('I', 25), (cx(25), 392), (cx(29), 392),
+          rl('t', '-', 29)], False, True)                              # sounder GND
 
 # --- bottom bundle: six runs into the ESP32-C6's lower header ------------
-J('3V3', [h('B', 28), h('B', 58)])                                     # sounder +
-J('GP0', [h('B', 19), (cx(19), 552), (cx(57), 552), h('A', 57)])       # SH-U12 RXD
-J('GP5', [h('A', 27), h('A', 52)])                                     # sounder S
-J('GP1', [h('A', 24), (cx(24), 568), (cx(56), 568), h('A', 56)])       # divider tap
-J('GP2', [h('F', 36), (cx(36), 468), (cx(48), 468),
-          (cx(48), 576), (cx(55), 576), h('A', 55)])                   # RC522 SCK
-J('GP3', [h('F', 37), (cx(37), 478), (cx(47), 478),
-          (cx(47), 584), (cx(54), 584), h('A', 54)])                   # RC522 MOSI
+J('GP0', [h('B', 17), (cx(17), 552), (cx(62), 552), h('A', 62)])       # SH-U12 RXD
+J('GP5', [h('G', 24), (cx(24), 488), (cx(52), 488),
+          (cx(52), 560), h('A', 57)])                                   # sounder IO
+J('GP1', [h('A', 20), (cx(20), 568), (cx(61), 568), h('A', 61)])       # divider tap
+J('GP2', [h('F', 34), (cx(34), 468), (cx(48), 468),
+          (cx(48), 576), (cx(60), 576), h('A', 60)])                   # RC522 SCK
+J('GP3', [h('F', 35), (cx(35), 478), (cx(47), 478),
+          (cx(47), 584), (cx(59), 584), h('A', 59)])                   # RC522 MOSI
 
 # --- RC522, top half -----------------------------------------------------
-J('SDA',  [h('I', 35), (cx(45), 400), (cx(45), 368), (cx(56), 368), h('J', 56)])
-J('RST',  [h('H', 41), (cx(48), 416), (cx(48), 392), (cx(55), 392), h('J', 55)])
-J('MISO', [h('G', 38), (cx(46), 432), (cx(46), 380), (cx(54), 380), h('J', 54)])
-J('GND',  [h('F', 40), (cx(47), 448), rl('t', '-', 47)], False, True)
-J('3V3',  [h('H', 42), (cx(42), 424), (cx(45), 424), rl('t', '+', 45)], False, True)
+J('SDA',  [h('F', 33), (cx(33), 460), (cx(45), 460), (cx(45), 368),
+           (cx(61), 368), h('J', 61)])
+J('RST',  [h('H', 39), (cx(48), 416), (cx(48), 392), (cx(60), 392), h('J', 60)])
+J('MISO', [h('G', 36), (cx(46), 432), (cx(46), 380), (cx(59), 380), h('J', 59)])
+J('GND',  [h('I', 38), (cx(38), 392), (cx(44), 392), rl('t', '-', 44)], False, True)
+J('3V3',  [h('I', 40), (cx(40), 408), (cx(47), 408), rl('t', '+', 47)], False, True)
 
 used = {}
 def rpath(pts, r=11):
@@ -257,8 +255,8 @@ def resistor(p1, p2, bands, value, lab_dx=0, lab_dy=-15):
                  'stroke-width=".7"/>' % (px, py))
     return '\n'.join(o)
 
-w(resistor(h('D', 20), h('D', 24), [BROWN, BLACK, RED, GOLD], '1 k&#8486;', lab_dy=-16))
-w(resistor(h('C', 24), rl('b', '-', 22), [RED, BLACK, RED, GOLD], '2 k&#8486;', lab_dx=-34, lab_dy=6))
+w(resistor(h('D', 16), h('D', 20), [BROWN, BLACK, RED, GOLD], '1 k&#8486;', lab_dy=22))
+w(resistor(h('C', 20), rl('b', '-', 22), [RED, BLACK, RED, GOLD], '2 k&#8486;', lab_dx=16, lab_dy=80))
 
 # ------------------------------------------------------------------- modules
 def pads(cols, row):
@@ -307,8 +305,8 @@ mb += ['<text transform="translate(%d,%d) rotate(-90)" font-size="12" font-weigh
 MODULES.append(mb)
 
 # --- DSD TECH SH-U12, pins row E cols 17-20, body reaching up
-scols = [17, 18, 19, 20]
-SX0, SX1, SY0, SY1 = 292, 396, 252, 496
+scols = [15, 16, 17, 18]
+SX0, SX1, SY0, SY1 = 260, 364, 252, 496
 shu = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="5" fill="#12508F" '
        'stroke="#0B3A69" stroke-width=".9"/></g>' % (SX0, SY0, SX1 - SX0, SY1 - SY0),
        pads(scols, 'E'),
@@ -326,25 +324,25 @@ shu += ['<rect x="%d" y="%d" width="52" height="34" rx="2" fill="#141414" stroke
         'MAX13487</text>' % (SX0 + 52, SY0 + 132, MONO),
         '<text transform="translate(%d,%d) rotate(-90)" font-size="10" font-family="%s" '
         'fill="#CFE0F2">SH-U12</text>' % (SX0 + 16, SY0 + 200, MONO),
-        vlab(scols, ['VCC', 'GND', 'RXD', 'TXD'], SY1 - 8, '#DCE6F2')]
+        vlab(scols, ['VCC', 'TXD', 'RXD', 'GND'], SY1 - 8, '#DCE6F2')]
 MODULES.append(shu)
 
-# --- active sounder, 3-pin plug-in module, pins row E cols 27-29
-bcols = [27, 28, 29]
-BZX0, BZX1, BZY0, BZY1 = 442, 542, 404, 492
+# --- active sounder, 3-pin plug-in module, pins row J cols 23-25
+bcols = [23, 24, 25]
+BZX0, BZX1, BZY0, BZY1 = 378, 478, 272, 384
 snd = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="5" fill="#1B4F8A" '
        'stroke="#123661" stroke-width=".9"/></g>' % (BZX0, BZY0, BZX1 - BZX0, BZY1 - BZY0),
-       pads(bcols, 'E'),
+       pads(bcols, 'J'),
        '<circle cx="%d" cy="%d" r="26" fill="#141414" stroke="#000"/>' % ((BZX0 + BZX1) / 2, BZY0 + 36),
        '<circle cx="%d" cy="%d" r="4.5" fill="#3A3A3A"/>' % ((BZX0 + BZX1) / 2, BZY0 + 36),
-       vlab(bcols, ['S', '+', '&#8211;'], BZY1 - 6, '#CFE0F2', 8),
+       vlab(bcols, ['VCC', 'IO', 'GND'], BZY1 - 6, '#CFE0F2', 8),
        '<text x="%d" y="%d" font-size="8" font-family="%s" fill="#5A6069" text-anchor="middle">'
        'active sounder</text>' % ((BZX0 + BZX1) / 2, BZY0 - 8, MONO)]
 MODULES.append(snd)
 
 # --- SunFounder RC522, pins row J cols 35-42, body off the top edge
-rcols = list(range(35, 43))
-RX0, RX1, RY0, RY1 = 566, 755, 100, 384
+rcols = list(range(33, 41))
+RX0, RX1, RY0, RY1 = 534, 723, 100, 384
 rc = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="5" fill="#A62C2A" '
       'stroke="#6E1B1A" stroke-width=".9"/></g>' % (RX0, RY0, RX1 - RX0, RY1 - RY0),
       pads(rcols, 'J'),
@@ -363,8 +361,8 @@ rc = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="5" 
 MODULES.append(rc)
 
 # --- Waveshare ESP32-C6-LCD-1.47, seen from above, USB-C off the end
-dcols = list(range(52, 61))
-DX0, DX1, DY0, DY1 = 831, 1049, 408, 536
+dcols = list(range(57, 66))
+DX0, DX1, DY0, DY1 = 911, 1129, 408, 536
 dtop = ['GP9', 'GP18', 'GP19', 'GP20', 'GP23', 'GP12', 'GP13', 'RX', 'TX']
 dbot = ['GP5', 'GP4', 'GP3', 'GP2', 'GP1', 'GP0', '3V3', 'GND', '5V']
 dev = ['<g filter="url(#soft)"><rect x="%d" y="%d" width="%d" height="%d" rx="6" fill="#17181A" '
@@ -402,31 +400,29 @@ def lead(p1, p2, colr, bow=40):
             '<circle cx="%.1f" cy="%.1f" r="2.4" fill="#BBBFC4" stroke="#6E7378" stroke-width=".6"/>'
             % (x1, y1, x1, y1 + bow, x2, y2 - bow, x2, y2, colr, x2, y2))
 
-TSX, TSY = 930, 700
+TSX, TSY = 990, 700
 w('<g filter="url(#soft)"><rect x="%d" y="%d" width="70" height="40" rx="4" fill="#E9ECEF" '
   'stroke="#9AA0A6"/></g>' % (TSX, TSY))
 w('<rect x="%d" y="%d" width="52" height="8" rx="4" fill="#B7BCC2" stroke="#7C838A"/>' % (TSX + 9, TSY + 25))
 w('<circle cx="%d" cy="%d" r="5" fill="#6E7378"/>' % (TSX + 35, TSY + 13))
 w('<text x="%d" y="%d" font-size="8" font-family="%s" fill="#5A6069" text-anchor="middle">'
   'tamper (N.C.) &#8594; GP4</text>' % (TSX + 35, TSY + 54, MONO))
-w(lead((TSX + 14, TSY), h('A', 53), '#9DA0A3', -66))
-w(lead((TSX + 56, TSY), rl('b', '-', 50), '#2A2C30', -34))
+w(lead((TSX + 14, TSY), h('A', 58), '#9DA0A3', -66))
+w(lead((TSX + 56, TSY), rl('b', '-', 56), '#2A2C30', -34))
 
 # ---------------------------------------------------------- RS-485 field wires
-for dx, colr, ey in ((22, '#EDEBE3', 176), (52, '#2A2C30', 190), (82, '#1FA34A', 204)):
+for dx, colr, ey in ((22, '#1FA34A', 176), (52, '#EDEBE3', 190), (82, '#2A2C30', 204)):
     w('<path d="M%d,%d C%d,%d %d,%d %d,%d" fill="none" stroke="%s" stroke-width="4" '
       'stroke-linecap="round"/>' % (SX0 + dx, SY0 + 8, SX0 + dx, 196, 300, ey - 10, 262, ey, colr))
-w(resistor((SX0 + 22, SY0 - 26), (SX0 + 52, SY0 - 26), ['#7A4A22', '#C62828', '#7A4A22', GOLD],
-           '120 &#8486;', lab_dy=22))
-w('<text x="%d" y="%d" font-size="8" fill="#8A9098" text-anchor="middle">optional &#8212; end of bus '
-  'only</text>' % (SX0 + 37, SY0 - 44))
-w('<rect x="86" y="140" width="176" height="58" rx="8" fill="#FFF" stroke="#C7CCD2"/>')
-w('<text x="174" y="162" font-size="11" font-weight="700" fill="#22262B" text-anchor="middle">'
-  'to the ACU</text>')
-w('<text x="174" y="179" font-size="9.5" font-family="%s" fill="#5A6069" text-anchor="middle">'
-  'A &#183; B &#183; GND</text>' % MONO)
-w('<text x="174" y="192" font-size="8.5" fill="#8A9098" text-anchor="middle">'
-  'shielded twisted pair</text>')
+# centred on the middle field lead, so the three wires run into the box
+ACU_Y = (176 + 204) // 2 - 29
+w('<rect x="86" y="%d" width="176" height="58" rx="8" fill="#FFF" stroke="#C7CCD2"/>' % ACU_Y)
+w('<text x="174" y="%d" font-size="11" font-weight="700" fill="#22262B" text-anchor="middle">'
+  'to the ACU</text>' % (ACU_Y + 22))
+w('<text x="174" y="%d" font-size="9.5" font-family="%s" fill="#5A6069" text-anchor="middle">'
+  'A &#183; B &#183; GND</text>' % (ACU_Y + 39, MONO))
+w('<text x="174" y="%d" font-size="8.5" fill="#8A9098" text-anchor="middle">'
+  'shielded twisted pair</text>' % (ACU_Y + 52))
 
 # ------------------------------------------------------------------- callouts
 def callout(x, y, wd, ht, title, body, accent='#B4700B', bg='#FFF6E5'):
@@ -444,13 +440,7 @@ w(callout(30, 700, 300, 86, '&#9888;  5 V &#8594; 3.3 V divider',
            '5 V tolerant. 1 k&#8486; in series from the TXD column,',
            '2 k&#8486; down to ground, tap along row A to GP1.',
            'Nothing else on the SH-U12 needs shifting.']))
-w(callout(346, 700, 330, 86, 'Split rails',
-          ['A full-size board breaks each power rail in the middle.',
-           'The MB102 feeds the left halves only; the four 5 mm',
-           'jumpers at columns 30&#8211;32 carry 3.3 V, 5 V and both',
-           'grounds across. The tie at column 14 joins the grounds.'],
-          accent='#1F6B3A', bg='#EFF8F2'))
-w(callout(692, 700, 222, 86, 'Waveshare pinout',
+w(callout(346, 700, 222, 86, 'Waveshare pinout',
           ['The wiki drawing is a bottom',
            'view. Seen from above with the',
            'USB-C to the right, 5V/GND/3V3',
