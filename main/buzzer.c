@@ -36,20 +36,23 @@ static void apply(void)
 
 esp_err_t buzzer_init(void)
 {
+    /* Silent before anything else runs, and the order here is the whole
+     * point. gpio_config leaves an output at 0, which on an active-low part
+     * is "sounding" — so configuring first and applying afterwards drives a
+     * real, if short, chirp out of the sounder on every boot. Writing the
+     * level first only sets the output register; the pad is still an input,
+     * so nothing reaches the part. gpio_config then enables the driver onto
+     * a pin that is already at the silent level. */
+    s_online   = false;
+    s_sounding = false;
+    s_local    = false;
+    apply();
+
     const gpio_config_t io = {
         .pin_bit_mask = 1ULL << BOARD_BUZZER,
         .mode         = GPIO_MODE_OUTPUT,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&io), TAG, "gpio");
-
-    /* Silent before anything else runs. gpio_config leaves an output at 0,
-     * which on an active-low part is "sounding" — so this is not a
-     * belt-and-braces line, it is the difference between a quiet boot and a
-     * reader that shrieks until the first osdp_BUZ arrives. */
-    s_online   = false;
-    s_sounding = false;
-    s_local    = false;
-    apply();
 
     ESP_LOGI(TAG, "active sounder on GPIO%d (%s)", BOARD_BUZZER,
              LEVEL_SOUNDING ? "active high" : "active low");
