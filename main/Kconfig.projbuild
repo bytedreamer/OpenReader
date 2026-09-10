@@ -110,6 +110,40 @@ menu "OpenReader"
             clock and data are fixed on-board at GPIO7 and GPIO6 and cannot
             be moved. An RC522 on bit-banged SPI runs alongside it happily.
 
+    config OPENREADER_DISPLAY_SLEEP
+        bool "Blank the screen when the face stops changing"
+        depends on OPENREADER_DISPLAY
+        default y
+        help
+            Turns the backlight off and puts the ST7789 into its sleep mode
+            after a spell with nothing on the face changing. Anything that
+            changes the face brings it straight back: a card read, the link
+            going up or down, a Secure Channel transition, the key-reset
+            countdown.
+
+            A reader at a door shows a face nobody is looking at for nearly
+            all of its life. The backlight is most of what the panel costs
+            to run, and an LCD lit continuously for years is also an LCD
+            with years of image retention on it.
+
+            Turn it off for a bench or a demo, where a dark screen looks
+            like a dead board.
+
+    config OPENREADER_DISPLAY_SLEEP_MS
+        int "Blank the screen after this long (ms)"
+        depends on OPENREADER_DISPLAY_SLEEP
+        range 1000 3600000
+        default 30000
+        help
+            Measured from the last change to the face, not from the last
+            card read — an idle reader whose link is flapping is a reader
+            with something to show.
+
+            Long enough that it does not blank while somebody is still
+            reading it, short enough to be worth doing. Waking costs about
+            150 ms: the controller wants 100 ms out of sleep and the frame
+            behind it takes the rest.
+
     config OPENREADER_RC522
         bool "External MFRC522 card reader"
         default y
