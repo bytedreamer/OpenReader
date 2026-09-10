@@ -903,7 +903,7 @@ pre code { background: none; padding: 0; font-size: inherit; }
 
       <h3>Enclosure tamper switch (optional)</h3>
 
-      <p>Only worth wiring once the reader is in a box. Everything else works without it, and the option is <strong>off by default</strong> — with it on and no switch fitted, the input's pull-up reads the floating pin as a permanent tamper.</p>
+      <p>Only worth wiring once the reader is in a box. Everything else works without it, and the option is <strong>off by default</strong> — an input nothing drives is worth nothing. It does no harm left on with no switch fitted, though: with the default polarity the pull-up reads an unconnected pin as normal.</p>
 
       <div class="tw">
         <table>
@@ -916,7 +916,9 @@ pre code { background: none; padding: 0; font-size: inherit; }
         </table>
       </div>
 
-      <p><strong>Use a normally-closed switch</strong> — one the enclosure lid holds <em>shut</em>. The lid then holds GP4 low, opening the lid releases it high, and so does a cut, corroded or disconnected wire. Sabotage reads as tamper. A normally-open switch cannot tell an intact quiet loop from a snipped one, so anyone with wire cutters defeats it silently. If yours is normally-open, there is an option for it directly beneath the first.</p>
+      <p><strong>The default expects a normally-open switch</strong> — one whose contact is open with the enclosure lid <em>shut</em>, and which closes when the box is opened. The pull-up holds GP4 high while the box is closed and the switch pulls it to ground when it is opened: open circuit is normal, closure is tamper. That is also why an unwired GP4 reads normal rather than permanently tampered.</p>
+
+      <p>The trade-off is that this wiring does not supervise itself: a cut, corroded or disconnected wire looks exactly like an intact quiet loop, so anyone with wire cutters defeats it silently. A normally-closed loop — one the lid holds <em>shut</em>, so opening the lid <strong>or</strong> cutting the wire both let the pull-up take the pin high — is the more secure choice where you have it, and there is an option for it directly beneath the first.</p>
 
       <p>GP4 and GP5 are the microSD slot's chip select and data-out on this carrier, so using them for these two parts gives the card slot up — nothing in the firmware has ever used it. They are also strapping pins, which here does not matter: on the ESP32-C6, GP8/GP9 set the boot mode and GP15 the JTAG source, but <strong>GP4 and GP5 select SDIO clock edges</strong>, and this firmware never uses SDIO. Both float by default with no internal pull resistor. The build still rejects a tamper pin on 8, 9 or 15.</p>
       <p>GP9 has a second job, and it needs no wiring: it is the BOOT button, and the firmware reads it as an ordinary input to offer the physical Secure Channel key reset &mdash; hold it ten seconds while the reader is running and the stored key is erased. Nothing about the button&rsquo;s original behaviour changes. The ROM samples that pin at reset and never again, so holding BOOT <em>across</em> a reset still gets download mode with the key untouched; the firmware&rsquo;s read happens long afterwards. Do not route anything else to GP9 &mdash; the build rejects an RS-485 pin there for this reason.</p>
@@ -1061,7 +1063,7 @@ ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
             <tr><td>Nothing at all after fitting the divider</td><td>Divider on the wrong pin. It belongs on <span class="pin">TXD</span> (transceiver → MCU), never on <span class="pin">RXD</span>.</td></tr>
             <tr><td>LED colours swapped — grant shows red, deny shows green</td><td>The pixel's byte order. Red/green and cyan/magenta trade places while blue, white and off look correct — see the callout in step 03.</td></tr>
             <tr><td>Reader online, but the LED is dark</td><td>Correct. The ACU owns the LED once the link is up, and it has commanded no colour. The LCD still reads <code>ONLINE</code>.</td></tr>
-            <tr><td>Tamper reported permanently, nothing wired to <span class="pin">GP4</span></td><td>The tamper option is enabled with no switch fitted; the pull-up reads the open pin as tamper.</td></tr>
+            <tr><td>Tamper reported permanently, nothing wired to <span class="pin">GP4</span></td><td>The supervised (normally-closed) option is set with no switch fitted; the pull-up reads the open pin as tamper. The default polarity reads it as normal.</td></tr>
             <tr><td>Buzzer clicks once and goes silent</td><td>It is a passive buzzer. The firmware drives a static level, not a waveform — you need an active one.</td></tr>
           </tbody>
         </table>

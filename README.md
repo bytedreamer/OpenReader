@@ -89,7 +89,7 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | PKOC site / location identifier | zeros | Sent in AUTHENTICATE; the card need not act on it |
 | How the RC522 is clocked | bit-banged | Software SPI, so the panel keeps SPI2. See below |
 | Audible output | off | An active sounder on GPIO5. Enabling it also makes `osdp_CAP` claim one |
-| Enclosure tamper switch | off | A switch on GPIO4. Leave off until one is wired — an open pin reads as tamper |
+| Enclosure tamper switch | off | A normally-open switch on GPIO4 that closes when the box is opened. Leave off until one is wired |
 | Discard local echo | off | Only enable if your transceiver echoes — [HARDWARE.md §8.3](docs/HARDWARE.md) |
 | Card repeat window | 2000 ms | Suppresses re-reads of a card left on the antenna |
 | PD serial number | 1 | Give each unit on a bus a distinct value |

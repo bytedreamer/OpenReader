@@ -50,7 +50,7 @@ comparatively simple device to build.
 | 6 | Jumper wires (female–female), or perfboard and wire | Bench wiring. | $3 |
 | 7 | USB-C cable | Power, flashing and the serial console, all on the one cable. | — |
 | 8 | **[Active buzzer module](https://www.amazon.com/Buzzer-Module-Arduino-ESP8266-Raspberry/dp/B0DYDJMP16/)**, 3.3 V, three-pin *(optional)* | Gives the reader a voice for `osdp_BUZ`. **“Active” is the part that matters** — it makes its own tone and carries its own drive transistor, so it needs one GPIO and no PWM. A passive buzzer will click once and go quiet, because the firmware drives a static level rather than a waveform. | $2 |
-| 9 | **Normally-closed tamper switch** *(optional)* | A plunger or lever microswitch the enclosure lid holds shut. Normally-closed matters — see §5.3. Only useful once the reader is in a box. | $2 |
+| 9 | **Tamper switch** *(optional)* | A plunger or lever microswitch, wired so the contact is **open** with the lid shut and closes when the box is opened. Most have both NO and NC terminals, so it is a matter of which one you land on — see §5.3. Only useful once the reader is in a box. | $2 |
 
 For a permanent install you will also want shielded twisted-pair cable
 (22–24 AWG, e.g. Belden 3105A or equivalent) and a 12 V supply with a buck
@@ -368,24 +368,31 @@ sound until someone unplugged it.
 ### Enclosure tamper switch (optional)
 
 Only worth wiring once the reader is in a box. Everything else works without
-it, and the option is **off by default** — with it on and no switch fitted,
-the input's pull-up reads the floating pin as a permanent tamper.
+it, and the option is **off by default** — an input nothing drives is worth
+nothing. It does no harm left on with no switch fitted, though: with the
+default polarity the pull-up reads an unconnected pin as normal.
 
 | Switch | ESP32-C6 GPIO | Note |
 | ------ | ------------- | ---- |
 | One leg | GPIO4 (header `GP4`) | |
 | Other leg | GND | No resistor — the internal pull-up supplies the high level |
 
-**Use a normally-closed switch** — one the enclosure lid holds *shut*. The
-lid then holds `GP4` low, opening the lid releases it high, and so does a
-cut, corroded or disconnected wire. Sabotage reads as tamper. A normally-open
-switch cannot tell an intact quiet loop from a snipped one, so anyone with
-wire cutters defeats it silently. If yours is normally-open anyway, there is
-an option for it:
+**The default expects a normally-open switch** — one whose contact is open
+with the enclosure lid *shut*, and which closes when the box is opened. The
+pull-up holds `GP4` high while the box is closed, and the switch pulls it to
+ground when it is opened: open circuit is normal, closure is tamper. That is
+also why an unwired `GP4` reads normal rather than permanently tampered.
+
+The trade-off is that this wiring does not supervise itself. A cut, corroded
+or disconnected wire looks exactly like an intact quiet loop, so anyone with
+wire cutters defeats it silently. A normally-closed loop — one the lid holds
+*shut*, so opening the lid **or** cutting the wire both let the pull-up take
+the pin high — is the more secure choice where you have it, and there is an
+option for it:
 
 ```
 idf.py menuconfig    # OpenReader → Enclosure tamper switch on GPIO4
-                     #            → The switch closes to ground when TAMPERED
+                     #            → The switch OPENS when tampered (supervised loop)
 ```
 
 You do not need to write any reporting logic. The switch is debounced over
@@ -522,7 +529,7 @@ Only if you enabled it in `menuconfig`. At boot:
 I (107) tamper: tamper input on GPIO4, currently normal
 ```
 
-Open the enclosure — or just lift the switch wire off `GP4` — and within a
+Open the enclosure — or just touch `GP4` to a ground pin — and within a
 tick you should see:
 
 ```
@@ -531,11 +538,11 @@ I (9120) osdp: queued unsolicited osdp_LSTATR reporting tamper
 ```
 
 `currently TAMPER` at boot with the lid shut means the polarity is inverted
-for your switch; see §5.3. Reporting tamper with nothing connected to `GP4`
-is the option being on with no switch fitted — the pull-up is reading an open
-pin, exactly as documented. And if it reports `normal` but never changes,
-check the switch really is on `GP4`: a pin held low by something else looks
-identical until you try to trip it.
+for your switch; see §5.3. Nothing connected to `GP4` reads `normal`, not
+tamper — the pull-up holds an open pin high, and on the default polarity high
+is normal. And if it reports `normal` but never changes, check the switch
+really is on `GP4`: a pin nothing ever pulls low looks identical until you
+try to trip it.
 
 ### 8.3 Does your transceiver echo?
 
@@ -633,8 +640,8 @@ logs the read as it hands it to the OSDP task.
 | ESP32-C6 resets when the bus is connected | The 5 V TXD reached a GPIO — check §4. The pin may already be damaged |
 | Reads work, but the panel never sees the card | The PD went offline between the read and the next poll; queued credentials are discarded on a comms loss by design (spec 7.11/7.12) |
 | Nothing at all after wiring the divider | Divider fitted to the wrong pin — it belongs on TXD (transceiver → MCU), never on RXD |
-| Tamper reported permanently, nothing wired to `GP4` | The tamper option is enabled with no switch fitted; the pull-up reads the open pin as tamper |
-| Tamper inverted — normal when open, tamper when shut | Normally-open switch; set the active-low option (§5.3) |
+| Tamper reported permanently, nothing wired to `GP4` | The supervised (normally-closed) option is set with no switch fitted; the pull-up reads the open pin as tamper. The default polarity reads it as normal |
+| Tamper inverted — normal when open, tamper when shut | A normally-closed switch on a default build; set the supervised option (§5.3), or move the wire to the switch's other terminal |
 | LED colours swapped — grant shows red, deny shows green | The pixel's byte order. Red/green and cyan/magenta trade places while blue, white and off look correct — see the note in §5. A colour sweep can appear to pass |
 | Reader online, LED dark | Correct: the ACU owns the LED once the link is up and has commanded no colour. The LCD still reads `ONLINE` |
 | Buzzer clicks once and goes silent | It is a passive buzzer. The firmware drives a static level, not a waveform — you need an active one (§5.2) |

@@ -24,20 +24,22 @@ static int64_t s_since_us;
 
 /* One raw sample, normalised so true always means tampered.
  *
- * The wiring this expects is a normally-closed switch to ground working
- * against the internal pull-up: the lid holds the contact shut and the pin
- * low, opening it lets the pull-up take the pin high, and a cut or lifted
- * wire does exactly the same. So high means tampered — and sabotage reads
- * as tamper rather than as normal, which is the entire point of choosing
- * that polarity. CONFIG_OPENREADER_TAMPER_ACTIVE_LOW inverts it for a
- * normally-open switch, which does not have that property. */
+ * The wiring this expects is a normally-open switch to ground working
+ * against the internal pull-up: the closed enclosure holds the contact open
+ * and the pull-up holds the pin high, and opening the box closes the contact
+ * and pulls the pin low. So low means tampered.
+ *
+ * The cost of that polarity is that it does not supervise its own wiring — a
+ * cut, lifted or never-connected wire reads exactly like an intact quiet
+ * loop. CONFIG_OPENREADER_TAMPER_NORMALLY_CLOSED inverts it for a
+ * normally-closed switch, which does have that property. */
 static bool read_raw(void)
 {
     const int level = gpio_get_level(BOARD_TAMPER);
-#if CONFIG_OPENREADER_TAMPER_ACTIVE_LOW
-    return level == 0;
-#else
+#if CONFIG_OPENREADER_TAMPER_NORMALLY_CLOSED
     return level != 0;
+#else
+    return level == 0;
 #endif
 }
 
@@ -47,8 +49,8 @@ esp_err_t tamper_init(void)
         .pin_bit_mask = 1ULL << BOARD_TAMPER,
         .mode         = GPIO_MODE_INPUT,
         /* The switch only ever drives one way. The pull-up supplies the
-         * other level, and is what makes an open circuit read as tamper
-         * instead of floating between the two. */
+         * other level, and is what keeps the pin at a definite level while
+         * the switch is open instead of floating between the two. */
         .pull_up_en   = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
