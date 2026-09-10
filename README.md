@@ -81,6 +81,8 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | Physical key reset | on | Hold BOOT to erase the key and return to install mode |
 | Key reset hold time | 10000 ms | How long the button must be held, continuously |
 | Reader face on the LCD | on | The link and card panels; owns hardware SPI2 when built |
+| Blank the screen when idle | on | Backlight off and the panel asleep once the face stops changing |
+| Blank the screen after | 30000 ms | Measured from the last change to the face, not the last card read |
 | MFRC522 card reader | on | Turn off for a display-only or bus-only build |
 | PKOC credentials | on | Needs the AsymCred checkout. Off leaves a UID-only reader |
 | PKOC credential width | 256-bit | Must match how the credential was enrolled. See below |
