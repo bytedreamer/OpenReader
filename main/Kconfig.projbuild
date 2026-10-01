@@ -97,6 +97,42 @@ menu "OpenReader"
             The LED counts the hold down in amber so there is something to
             watch while it runs.
 
+    config OPENREADER_SC2
+        bool "OSDP Secure Channel 2 with PQC pairing (experimental)"
+        depends on OPENREADER_SECURE_CHANNEL
+        default n
+        help
+            SC2 replaces SC1's AES-128 with AES-256-GCM, keyed by KMAC256.
+            Its key comes from pairing, which uses ML-KEM-768 and ML-DSA-44,
+            not from osdp_KEYSET. SC1 stays compiled in alongside it.
+
+            The pairing and SC2 crypto come from wolfCrypt, through
+            OSDP-Embedded's ports/wolfcrypt binding. KMAC256 comes from the
+            library's vendored tiny-kmac, because wolfCrypt has no KMAC.
+            Turning this on pulls wolfssl/wolfssl from the ESP Component
+            Registry. That is the only build that does.
+
+            Experimental: SC2 and pairing exist only on OSDP-Embedded's
+            feature/osdp-sc2 branch, so point OSDP_EMBEDDED_DIR at a
+            checkout of it.
+
+    config OPENREADER_OSDP_TASK_STACK
+        int "OSDP task stack size (bytes)"
+        depends on OPENREADER_SC2
+        range 8192 131072
+        default 32768
+        help
+            Without SC2 the OSDP task is app_main's own task, sized by
+            ESP_MAIN_TASK_STACK_SIZE. With SC2 it gets a task of its own
+            with this stack, because ML-DSA-44 signing during pairing needs
+            a stack many times larger than anything else on the bus.
+            Pairing is a one-off, but the stack is allocated for the life
+            of the task.
+
+            32 KB is a provisional figure until the wolfCrypt port reports
+            what signing actually uses. Check the high-water mark after a
+            pairing and trim to fit.
+
     config OPENREADER_DISPLAY
         bool "Show the reader face on the onboard LCD"
         default y

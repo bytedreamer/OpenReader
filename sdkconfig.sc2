@@ -1,0 +1,17 @@
+# Overlay for the experimental SC2 + PQC pairing build. Layer it on top of
+# the normal defaults, in its own build directory so it never touches the
+# main sdkconfig:
+#
+#   $env:OSDP_EMBEDDED_DIR = "..\OSDP-Embedded-sc2"
+#   idf.py -B build-sc2 -D SDKCONFIG=build-sc2/sdkconfig `
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sc2" build
+CONFIG_OPENREADER_SC2=y
+
+# wolfCrypt's ML-KEM (all three sizes; pairing uses 768). ML-DSA has no
+# menuconfig switch, so the top-level CMakeLists.txt turns it on.
+CONFIG_ESP_WOLFSSL_ENABLE_MLKEM=y
+
+# wolfSSL warns at compile time when the MAIN task stack is under 10 KB,
+# because RSA needs more. OpenReader doesn't use RSA, and with SC2 the OSDP
+# task gets its own stack (OPENREADER_OSDP_TASK_STACK).
+CONFIG_ESP_WOLFSSL_NO_STACK_SIZE_BUILD_WARNING=y

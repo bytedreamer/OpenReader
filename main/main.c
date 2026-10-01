@@ -30,6 +30,7 @@
 #include "nvs_flash.h"          /* the Secure Channel key store lives here */
 #include "sdkconfig.h"
 
+#include <stdlib.h>          /* abort */
 #include <string.h>
 #include <stdio.h>
 
@@ -246,6 +247,15 @@ static void key_store_init(void)
 }
 #endif /* CONFIG_OPENREADER_SECURE_CHANNEL */
 
+#if CONFIG_OPENREADER_SC2
+/* osdp_reader_run() as a FreeRTOS task body. It never returns. */
+static void osdp_task(void *arg)
+{
+    (void)arg;
+    osdp_reader_run();
+}
+#endif
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "OpenReader starting");
@@ -340,9 +350,23 @@ void app_main(void)
     }
 #endif
 
+#if CONFIG_OPENREADER_SC2
+    /* With SC2 the OSDP task can't be app_main's: ML-DSA signing during
+     * pairing needs a stack many times the size of the main task's, and
+     * growing ESP_MAIN_TASK_STACK_SIZE to match would size it for every
+     * build. A task of its own gets the stack from Kconfig. app_main returns
+     * and its task is deleted, so the main task's 4 KB comes back. */
+    if (xTaskCreate(osdp_task, "osdp", CONFIG_OPENREADER_OSDP_TASK_STACK,
+                    NULL, 10, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "no memory for a %d-byte OSDP task stack",
+                 CONFIG_OPENREADER_OSDP_TASK_STACK);
+        abort();
+    }
+#else
     /* app_main's own task becomes the OSDP task rather than spawning a
      * third one. Raise its priority first — app_main starts at 1, and the
      * bus deserves better than that. */
     vTaskPrioritySet(NULL, 10);
     osdp_reader_run();
+#endif
 }

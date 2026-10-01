@@ -40,12 +40,39 @@ file(GLOB OSDP_SRCS
     "${OSDP_DIR}/core/src/pair/*.c"
     "${OSDP_DIR}/pd/src/*.c")
 
+set(OSDP_INCLUDE_DIRS "${OSDP_DIR}/core/include" "${OSDP_DIR}/pd/include")
+set(OSDP_REQUIRES)
+
+# SC2 and pairing need crypto the core leaves to the application: wolfCrypt
+# through the library's ports/wolfcrypt binding, and tiny-kmac for KMAC256,
+# which wolfCrypt doesn't provide. Both are compiled here, not in main,
+# because they ship with the library. The binding is globbed because it is
+# still being written upstream. Until it lands, this adds only tiny-kmac.
+if(CONFIG_OPENREADER_SC2)
+    if(NOT EXISTS "${OSDP_DIR}/core/include/osdp/osdp_sc2_crypto.h")
+        message(FATAL_ERROR
+            "OPENREADER_SC2 is on, but '${OSDP_DIR}' has no SC2. Point "
+            "OSDP_EMBEDDED_DIR at a checkout of feature/osdp-sc2.")
+    endif()
+    list(APPEND OSDP_SRCS "${OSDP_DIR}/vendor/tiny-kmac/kmac.c")
+    list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/vendor/tiny-kmac")
+    if(IS_DIRECTORY "${OSDP_DIR}/ports/wolfcrypt")
+        file(GLOB OSDP_WOLFCRYPT_SRCS "${OSDP_DIR}/ports/wolfcrypt/*.c")
+        list(APPEND OSDP_SRCS ${OSDP_WOLFCRYPT_SRCS})
+        list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/ports/wolfcrypt")
+    else()
+        message(WARNING "${OSDP_DIR} has no ports/wolfcrypt yet; SC2 "
+                        "will build but has no pairing crypto to bind.")
+    endif()
+    list(APPEND OSDP_REQUIRES wolfssl__wolfssl)
+endif()
+
 idf_component_register(
     SRCS              ${OSDP_SRCS}
-    INCLUDE_DIRS      "${OSDP_DIR}/core/include"
-                      "${OSDP_DIR}/pd/include"
+    INCLUDE_DIRS      ${OSDP_INCLUDE_DIRS}
     PRIV_INCLUDE_DIRS "${OSDP_DIR}/core/src"
-                      "${OSDP_DIR}/pd/src")
+                      "${OSDP_DIR}/pd/src"
+    REQUIRES          ${OSDP_REQUIRES})
 
 # The library is freestanding C11 and warning-clean under -Wall -Wextra
 # -Wconversion upstream, but IDF's warning set differs slightly by version.
