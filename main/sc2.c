@@ -11,6 +11,9 @@
 #include "pair_credentials.h"
 
 #include "esp_log.h"
+#include "esp_system.h"         /* esp_get_minimum_free_heap_size */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"      /* uxTaskGetStackHighWaterMark */
 #include "sdkconfig.h"
 
 #include <string.h>
@@ -47,6 +50,16 @@ static bool on_paired(void                   *user,
              (int)peer->manufacturer_len, peer->manufacturer,
              (int)peer->model_len, peer->model,
              (int)peer->serial_len, peer->serial);
+
+    /* What pairing cost, so OPENREADER_OSDP_TASK_STACK can be trimmed to
+     * fit. Both figures are low-water marks since boot. The step that uses
+     * the most stack, Message 1 (verify the ACU's certificate, encapsulate,
+     * sign), has already run by the time this is called. */
+    ESP_LOGI(TAG, "OSDP task stack: %u of %d bytes never used; heap low "
+                  "point %u bytes free",
+             (unsigned)uxTaskGetStackHighWaterMark(NULL),
+             CONFIG_OPENREADER_OSDP_TASK_STACK,
+             (unsigned)esp_get_minimum_free_heap_size());
 
     if (sc_key_store_sc2(scbk) != ESP_OK) {
         ESP_LOGE(TAG, "could not store the paired key; refusing the pairing");

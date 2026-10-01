@@ -10,7 +10,8 @@
  *
  * The backend is wolfCrypt, through OSDP-Embedded's ports/wolfcrypt, plus
  * the library's vendored tiny-kmac for KMAC256, which wolfCrypt lacks.
- * Until that port lands, both getters return NULL and SC2 stays off. */
+ * Both getters set their vtable up on the first call and return the same
+ * one after that. */
 #ifndef SC2_CRYPTO_H
 #define SC2_CRYPTO_H
 

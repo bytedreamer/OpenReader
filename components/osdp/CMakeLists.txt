@@ -46,8 +46,8 @@ set(OSDP_REQUIRES)
 # SC2 and pairing need crypto the core leaves to the application: wolfCrypt
 # through the library's ports/wolfcrypt binding, and tiny-kmac for KMAC256,
 # which wolfCrypt doesn't provide. Both are compiled here, not in main,
-# because they ship with the library. The binding is globbed because it is
-# still being written upstream. Until it lands, this adds only tiny-kmac.
+# because they ship with the library. The port directory is globbed, so
+# files added to it upstream are picked up without editing this list.
 if(CONFIG_OPENREADER_SC2)
     if(NOT EXISTS "${OSDP_DIR}/core/include/osdp/osdp_sc2_crypto.h")
         message(FATAL_ERROR
@@ -56,14 +56,14 @@ if(CONFIG_OPENREADER_SC2)
     endif()
     list(APPEND OSDP_SRCS "${OSDP_DIR}/vendor/tiny-kmac/kmac.c")
     list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/vendor/tiny-kmac")
-    if(IS_DIRECTORY "${OSDP_DIR}/ports/wolfcrypt")
-        file(GLOB OSDP_WOLFCRYPT_SRCS "${OSDP_DIR}/ports/wolfcrypt/*.c")
-        list(APPEND OSDP_SRCS ${OSDP_WOLFCRYPT_SRCS})
-        list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/ports/wolfcrypt")
-    else()
-        message(WARNING "${OSDP_DIR} has no ports/wolfcrypt yet; SC2 "
-                        "will build but has no pairing crypto to bind.")
+    if(NOT EXISTS "${OSDP_DIR}/ports/wolfcrypt/osdp_pair_wolfcrypt.h")
+        message(FATAL_ERROR
+            "'${OSDP_DIR}' has no wolfCrypt SC2/pairing port "
+            "(ports/wolfcrypt/osdp_pair_wolfcrypt.h). Update the checkout.")
     endif()
+    file(GLOB OSDP_WOLFCRYPT_SRCS "${OSDP_DIR}/ports/wolfcrypt/*.c")
+    list(APPEND OSDP_SRCS ${OSDP_WOLFCRYPT_SRCS})
+    list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/ports/wolfcrypt")
     list(APPEND OSDP_REQUIRES wolfssl__wolfssl)
 endif()
 

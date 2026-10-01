@@ -129,9 +129,13 @@ menu "OpenReader"
             Pairing is a one-off, but the stack is allocated for the life
             of the task.
 
-            32 KB is a provisional figure until the wolfCrypt port reports
-            what signing actually uses. Check the high-water mark after a
-            pairing and trim to fit.
+            32 KB leaves a wide margin. Measured on x86-64 with this
+            build's wolfCrypt settings, the PD's heaviest pairing step
+            (Message 1: verify the ACU's certificate, ML-KEM encapsulate,
+            ML-DSA sign) peaks at about 8 KB of stack and 16 KB of heap.
+            wolfCrypt keeps ML-DSA's large buffers on the heap. Frames on
+            the C6 differ, so after a real pairing read the log line that
+            reports how much stack was never used, and trim to fit.
 
     config OPENREADER_SC2_DENY_REPAIR
         bool "Refuse to pair again once paired"
