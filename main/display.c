@@ -551,6 +551,96 @@ static void flush_frame(void)
     (void)esp_lcd_panel_draw_bitmap(s_panel, 0, 0, LCD_W, LCD_H, s_fb);
 }
 
+/* ---- Screen sleep -------------------------------------------------------
+ *
+ * A reader at a door spends nearly all of its life showing a face nobody is
+ * looking at. After CONFIG_OPENREADER_DISPLAY_SLEEP_MS with nothing on the
+ * face changing, the panel goes dark; the next thing that changes it brings
+ * it back.
+ *
+ * Inactivity is defined as the render task's own dirty test, and
+ * deliberately not as a list of events worth waking for. A separate list
+ * would be a second opinion about what matters on this screen, free to drift
+ * out of step with the first one — and the first one is the one that decides
+ * what is actually on the glass. If the frame the panel is showing is still
+ * the correct frame, there is nothing here for anyone to look at. Everything
+ * that reaches the face therefore counts: a link transition, a Secure
+ * Channel change, the key-reset countdown, a card read — including a re-read
+ * of the same card, which changes no digit on the panel but does move
+ * read_ms, so a card sitting on the antenna keeps the screen up.
+ *
+ * Both halves are switched, for two different reasons. The backlight is
+ * where nearly all of the current goes and is what makes the screen visibly
+ * off. SLPIN on top of it stops the controller's own oscillator, booster and
+ * panel drive, which is worth having on a device that may be on a door for a
+ * decade. The vendor driver holds the 100 ms the controller wants either
+ * side of that command itself; it lands on this task, which is priority 3
+ * and on nothing's critical path.
+ */
+#if CONFIG_OPENREADER_DISPLAY_SLEEP
+
+#define SLEEP_AFTER_US ((int64_t)CONFIG_OPENREADER_DISPLAY_SLEEP_MS * 1000)
+
+static bool    s_asleep;
+static bool    s_waking;
+static int64_t s_idle_since_us;
+
+/* Called before every repaint, asleep or not: a repaint only happens when
+ * the face changed, which is exactly what activity means here.
+ *
+ * If the panel is asleep this takes it out of sleep but leaves it dark, so
+ * the caller can compose the current frame into a panel nobody is looking
+ * at. Waking the screen first would light the frame it went to sleep with
+ * for as long as the repaint takes — a stale face, briefly, which on a
+ * screen whose whole job is reporting state is the one artefact worth an
+ * ordering rule. */
+static void screen_before_paint(void)
+{
+    s_idle_since_us = esp_timer_get_time();
+    if (!s_asleep) {
+        return;
+    }
+    (void)esp_lcd_panel_disp_sleep(s_panel, false);
+    s_asleep = false;
+    s_waking = true;
+}
+
+/* Called after the frame has been pushed. Lights the panel only if this
+ * repaint was the one that woke it; an ordinary repaint touches nothing. */
+static void screen_after_paint(void)
+{
+    if (!s_waking) {
+        return;
+    }
+    (void)esp_lcd_panel_disp_on_off(s_panel, true);
+    gpio_set_level(BOARD_LCD_BL, 1);
+    s_waking = false;
+    ESP_LOGI(TAG, "screen awake");
+}
+
+/* Called on ticks where the face did not change. */
+static void screen_idle_tick(void)
+{
+    if (s_asleep ||
+        (esp_timer_get_time() - s_idle_since_us) < SLEEP_AFTER_US) {
+        return;
+    }
+    gpio_set_level(BOARD_LCD_BL, 0);
+    (void)esp_lcd_panel_disp_on_off(s_panel, false);
+    (void)esp_lcd_panel_disp_sleep(s_panel, true);
+    s_asleep = true;
+    ESP_LOGI(TAG, "screen asleep: the face has not changed for %u ms",
+             (unsigned)CONFIG_OPENREADER_DISPLAY_SLEEP_MS);
+}
+
+#else  /* the panel simply stays lit */
+
+static inline void screen_before_paint(void) { }
+static inline void screen_after_paint(void)  { }
+static inline void screen_idle_tick(void)    { }
+
+#endif
+
 static void render_task(void *arg)
 {
     (void)arg;
@@ -590,8 +680,12 @@ static void render_task(void *arg)
          * assigned individually into a static (so zero-initialised) copy;
          * the padding never holds anything but the zeros it started with. */
         if (first || memcmp(&now, &shown, sizeof(now)) != 0) {
+            screen_before_paint();
             render_frame(&now);
             flush_frame();
+            screen_after_paint();
+        } else {
+            screen_idle_tick();
         }
 
         shown = now;

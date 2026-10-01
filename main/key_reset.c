@@ -25,9 +25,10 @@ static bool    s_fired;       /* this press has already triggered a reset    */
 /* One raw sample, normalised so true means pressed.
  *
  * The BOOT button shorts the pin to ground and the internal pull-up supplies
- * the other level, so pressed reads low. Unlike the tamper input there is no
- * polarity option: this is a button on the board, not a switch someone
- * chooses and wires. */
+ * the other level, so pressed reads low — the same normally-open, closes-to-
+ * trip convention as the tamper input's default. There is no polarity option
+ * here: this is a button on the board, not a switch someone chooses and
+ * wires. */
 static bool read_raw(void)
 {
     return gpio_get_level(BOARD_KEY_RESET) == 0;

@@ -26,8 +26,8 @@ esp_err_t tamper_init(void);
  * debounced state has just changed — the caller's cue to tell the ACU. */
 bool tamper_poll(void);
 
-/* The debounced state: true when the enclosure is open, or the switch wire
- * has been cut. */
+/* The debounced state: true when the enclosure is open — and, on a build
+ * wired for a normally-closed switch, when the switch wire has been cut. */
 bool tamper_active(void);
 
 #endif /* TAMPER_H */

@@ -14,6 +14,12 @@
  * frame is 110 KB over SPI, and the OSDP task cannot afford to sit behind
  * it. Nothing on the bus path ever blocks on the screen.
  *
+ * Sleep. When CONFIG_OPENREADER_DISPLAY_SLEEP is built the panel blanks
+ * after CONFIG_OPENREADER_DISPLAY_SLEEP_MS with nothing on the face
+ * changing, and comes back on the next change. No caller has to ask for
+ * that or know about it: every setter below already reports a change, and a
+ * change is the whole definition of activity here.
+ *
  * The panel has hardware SPI2 to itself. It is the one peripheral here that
  * cannot be moved — its clock and data are soldered to GPIO7/6 — so when the
  * display is built it owns the host, and an RC522 alongside it is clocked in
