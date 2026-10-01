@@ -20,6 +20,27 @@ if(CONFIG_OPENREADER_SECURE_CHANNEL)
     endif()
 endif()
 
+# SC2 and pairing. The pairing credential holds a private key, so it is
+# generated per device and never checked in; stop here with the command
+# rather than fail later on a missing #include.
+if(CONFIG_OPENREADER_SC2)
+    list(APPEND OPENREADER_SRCS "sc2.c" "sc2_crypto.c")
+    if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/pair_credentials.h")
+        message(FATAL_ERROR
+            "OPENREADER_SC2 needs main/pair_credentials.h, this reader's "
+            "pairing certificate and key. Generate it with OSDP-Embedded's "
+            "host tool:
+"
+            "  osdp-pair-provision --out main/pair_credentials.h "
+            "--manufacturer \"Z-bit Systems\" --model OpenReader "
+            "--serial <this reader's serial>
+"
+            "Each reader needs its own --device-seed as well as its own "
+            "serial. The output is demo-CA material: fine for a bench, "
+            "nothing else.")
+    endif()
+endif()
+
 # pkoc.c is the only file that includes the AsymCred headers, so a build with
 # PKOC turned off must not compile it — the component that supplies those
 # headers registers itself empty in that configuration.

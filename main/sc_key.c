@@ -1,6 +1,9 @@
 #include "sc_key.h"
 
 #include "osdp/osdp_sc.h"       /* OSDP_SC_KEY_LEN — checked against ours */
+#if CONFIG_OPENREADER_SC2
+#include "osdp/osdp_sc2.h"      /* OSDP_SC2_KEY_LEN — likewise */
+#endif
 
 #include "esp_efuse.h"
 #include "esp_hmac.h"
@@ -20,18 +23,39 @@ static const char *TAG = "sc_key";
  * under the reader. */
 #define NVS_NAMESPACE "openreader_sc"
 #define NVS_KEY_SCBK  "scbk"
+#define NVS_KEY_SCBK2 "scbk2"     /* the SC2 key pairing derived            */
 
 /* The two blob shapes. The first byte says which, so a device whose eFuse
  * key was burned after deployment can still read what it wrote before. */
-#define BLOB_PLAIN 0x01U   /* [kind][key 16]                               */
-#define BLOB_EFUSE 0x02U   /* [kind][nonce 12][tag 16][ciphertext 16]      */
+#define BLOB_PLAIN 0x01U   /* [kind][key]                                  */
+#define BLOB_EFUSE 0x02U   /* [kind][nonce 12][tag 16][ciphertext]         */
 
 #define GCM_NONCE_LEN 12U
 #define GCM_TAG_LEN   16U
 #define KEK_LEN       32U   /* HMAC-SHA256 output, used as an AES-256 key  */
 
-#define BLOB_PLAIN_LEN (1U + SC_KEY_LEN)
-#define BLOB_EFUSE_LEN (1U + GCM_NONCE_LEN + GCM_TAG_LEN + SC_KEY_LEN)
+#define BLOB_PLAIN_LEN(n) (1U + (n))
+#define BLOB_EFUSE_LEN(n) (1U + GCM_NONCE_LEN + GCM_TAG_LEN + (n))
+
+/* The longest key held, which sizes every blob buffer. */
+#define KEY_MAX 32U
+
+/* One stored key. SC1's SCBK and SC2's share every step of sealing and
+ * storing, and differ only in where they live and how long they are.
+ *
+ * Swapping one key's blob into the other's NVS entry does not get past the
+ * checks. The two lengths differ, so the length check in blob_open() rejects
+ * the swapped blob before its tag is even tried. */
+typedef struct {
+    const char *nvs_key;
+    size_t      len;
+    const char *name;   /* for the log */
+} slot_t;
+
+static const slot_t SLOT_SC1 = { NVS_KEY_SCBK, SC_KEY_LEN, "SCBK" };
+#if CONFIG_OPENREADER_SC2
+static const slot_t SLOT_SC2 = { NVS_KEY_SCBK2, SC2_KEY_LEN, "SC2 SCBK" };
+#endif
 
 /* Domain separation for the KEK derivation.
  *
@@ -48,6 +72,13 @@ static const char KEK_LABEL[] = "OpenReader SCBK wrap v1";
 _Static_assert(SC_KEY_LEN == OSDP_SC_KEY_LEN,
                "sc_key.h's SC_KEY_LEN has drifted from the library's "
                "OSDP_SC_KEY_LEN");
+#if CONFIG_OPENREADER_SC2
+_Static_assert(SC2_KEY_LEN == OSDP_SC2_KEY_LEN,
+               "sc_key.h's SC2_KEY_LEN has drifted from the library's "
+               "OSDP_SC2_KEY_LEN");
+_Static_assert(SC2_KEY_LEN <= KEY_MAX, "KEY_MAX no longer fits SC2's key");
+#endif
+_Static_assert(SC_KEY_LEN <= KEY_MAX, "KEY_MAX no longer fits SC1's key");
 
 static bool              s_ready;
 static bool              s_have_efuse;
@@ -88,8 +119,8 @@ static esp_err_t derive_kek(uint8_t kek[KEK_LEN])
  * something it is not. */
 static esp_err_t gcm_seal(const uint8_t kek[KEK_LEN],
                           const uint8_t nonce[GCM_NONCE_LEN],
-                          const uint8_t *plain, uint8_t *cipher,
-                          uint8_t tag[GCM_TAG_LEN])
+                          const uint8_t *plain, size_t len,
+                          uint8_t *cipher, uint8_t tag[GCM_TAG_LEN])
 {
     const uint8_t aad = BLOB_EFUSE;
     mbedtls_gcm_context ctx;
@@ -98,7 +129,7 @@ static esp_err_t gcm_seal(const uint8_t kek[KEK_LEN],
     esp_err_t err = ESP_FAIL;
     if (mbedtls_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, kek,
                            KEK_LEN * 8U) == 0 &&
-        mbedtls_gcm_crypt_and_tag(&ctx, MBEDTLS_GCM_ENCRYPT, SC_KEY_LEN,
+        mbedtls_gcm_crypt_and_tag(&ctx, MBEDTLS_GCM_ENCRYPT, len,
                                   nonce, GCM_NONCE_LEN, &aad, 1U,
                                   plain, cipher, GCM_TAG_LEN, tag) == 0) {
         err = ESP_OK;
@@ -110,7 +141,8 @@ static esp_err_t gcm_seal(const uint8_t kek[KEK_LEN],
 static esp_err_t gcm_open(const uint8_t kek[KEK_LEN],
                           const uint8_t nonce[GCM_NONCE_LEN],
                           const uint8_t tag[GCM_TAG_LEN],
-                          const uint8_t *cipher, uint8_t *plain)
+                          const uint8_t *cipher, size_t len,
+                          uint8_t *plain)
 {
     const uint8_t aad = BLOB_EFUSE;
     mbedtls_gcm_context ctx;
@@ -122,7 +154,7 @@ static esp_err_t gcm_open(const uint8_t kek[KEK_LEN],
     esp_err_t err = ESP_FAIL;
     if (mbedtls_gcm_setkey(&ctx, MBEDTLS_CIPHER_ID_AES, kek,
                            KEK_LEN * 8U) == 0 &&
-        mbedtls_gcm_auth_decrypt(&ctx, SC_KEY_LEN, nonce, GCM_NONCE_LEN,
+        mbedtls_gcm_auth_decrypt(&ctx, len, nonce, GCM_NONCE_LEN,
                                  &aad, 1U, tag, GCM_TAG_LEN,
                                  cipher, plain) == 0) {
         err = ESP_OK;
@@ -134,14 +166,15 @@ static esp_err_t gcm_open(const uint8_t kek[KEK_LEN],
 /* ---- Blob assembly ------------------------------------------------------ */
 
 /* Build the blob that goes into NVS, in whichever shape this device can
- * manage. `out` must hold BLOB_EFUSE_LEN; `*len` receives what was used. */
-static esp_err_t blob_seal(const uint8_t scbk[SC_KEY_LEN],
+ * manage. `out` must hold BLOB_EFUSE_LEN(KEY_MAX); `*len` receives what was
+ * used. */
+static esp_err_t blob_seal(const uint8_t *key, size_t key_len,
                            uint8_t *out, size_t *len)
 {
     if (!s_have_efuse) {
         out[0] = BLOB_PLAIN;
-        memcpy(&out[1], scbk, SC_KEY_LEN);
-        *len = BLOB_PLAIN_LEN;
+        memcpy(&out[1], key, key_len);
+        *len = BLOB_PLAIN_LEN(key_len);
         return ESP_OK;
     }
 
@@ -164,26 +197,26 @@ static esp_err_t blob_seal(const uint8_t scbk[SC_KEY_LEN],
      * the hardware RNG. */
     esp_fill_random(nonce, GCM_NONCE_LEN);
 
-    err = gcm_seal(kek, nonce, scbk, cipher, tag);
+    err = gcm_seal(kek, nonce, key, key_len, cipher, tag);
     memset(kek, 0, sizeof(kek));
     if (err != ESP_OK) {
-        memset(out, 0, BLOB_EFUSE_LEN);
+        memset(out, 0, BLOB_EFUSE_LEN(key_len));
         return err;
     }
-    *len = BLOB_EFUSE_LEN;
+    *len = BLOB_EFUSE_LEN(key_len);
     return ESP_OK;
 }
 
 /* The inverse. Returns ESP_ERR_INVALID_STATE for a blob this device cannot
  * open — which the caller must report as a fault, never as "unkeyed". */
 static esp_err_t blob_open(const uint8_t *blob, size_t len,
-                           uint8_t scbk[SC_KEY_LEN])
+                           uint8_t *key, size_t key_len)
 {
-    if (len == BLOB_PLAIN_LEN && blob[0] == BLOB_PLAIN) {
-        memcpy(scbk, &blob[1], SC_KEY_LEN);
+    if (len == BLOB_PLAIN_LEN(key_len) && blob[0] == BLOB_PLAIN) {
+        memcpy(key, &blob[1], key_len);
         return ESP_OK;
     }
-    if (len != BLOB_EFUSE_LEN || blob[0] != BLOB_EFUSE) {
+    if (len != BLOB_EFUSE_LEN(key_len) || blob[0] != BLOB_EFUSE) {
         ESP_LOGE(TAG, "stored key blob is malformed (%u bytes, kind 0x%02X)",
                  (unsigned)len, (unsigned)blob[0]);
         return ESP_ERR_INVALID_STATE;
@@ -202,7 +235,7 @@ static esp_err_t blob_open(const uint8_t *blob, size_t len,
 
     const esp_err_t err = gcm_open(kek, &blob[1], &blob[1 + GCM_NONCE_LEN],
                                    &blob[1 + GCM_NONCE_LEN + GCM_TAG_LEN],
-                                   scbk);
+                                   key_len, key);
     memset(kek, 0, sizeof(kek));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "the stored key failed its authentication tag — the "
@@ -214,14 +247,15 @@ static esp_err_t blob_open(const uint8_t *blob, size_t len,
 
 /* ---- NVS ---------------------------------------------------------------- */
 
-static esp_err_t write_blob(const uint8_t *blob, size_t len)
+static esp_err_t write_blob(const slot_t *slot, const uint8_t *blob,
+                            size_t len)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) {
         return err;
     }
-    err = nvs_set_blob(h, NVS_KEY_SCBK, blob, len);
+    err = nvs_set_blob(h, slot->nvs_key, blob, len);
     if (err == ESP_OK) {
         /* Commit inside the same handle, before returning success. The
          * caller's next act is to tell the ACU the key took. */
@@ -259,9 +293,11 @@ esp_err_t sc_key_init(void)
     return ESP_OK;
 }
 
-sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN])
+static esp_err_t slot_store(const slot_t *slot, const uint8_t *key);
+
+static sc_key_state_t slot_load(const slot_t *slot, uint8_t *key)
 {
-    memset(scbk, 0, SC_KEY_LEN);
+    memset(key, 0, slot->len);
     if (!s_ready) {
         return SC_KEY_UNREADABLE;
     }
@@ -277,25 +313,25 @@ sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN])
         return SC_KEY_UNREADABLE;
     }
 
-    uint8_t blob[BLOB_EFUSE_LEN];
+    uint8_t blob[BLOB_EFUSE_LEN(KEY_MAX)];
     size_t  len = sizeof(blob);
-    err = nvs_get_blob(h, NVS_KEY_SCBK, blob, &len);
+    err = nvs_get_blob(h, slot->nvs_key, blob, &len);
     nvs_close(h);
 
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return SC_KEY_NONE;   /* never keyed — install mode */
+        return SC_KEY_NONE;   /* nothing stored in this slot */
     }
     if (err != ESP_OK) {
         /* Includes ESP_ERR_NVS_INVALID_LENGTH, which means something is
          * stored that is larger than any blob this firmware writes. Stored
          * and unreadable is a fault, not an absence. */
-        ESP_LOGE(TAG, "could not read the stored key: %s",
+        ESP_LOGE(TAG, "could not read the stored %s: %s", slot->name,
                  esp_err_to_name(err));
         return SC_KEY_UNREADABLE;
     }
 
-    if (blob_open(blob, len, scbk) != ESP_OK) {
-        memset(scbk, 0, SC_KEY_LEN);
+    if (blob_open(blob, len, key, slot->len) != ESP_OK) {
+        memset(key, 0, slot->len);
         return SC_KEY_UNREADABLE;
     }
 
@@ -307,9 +343,11 @@ sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN])
      * A failure here is not fatal — the key is in hand and the reader should
      * still come up — so it is reported and stepped over. */
     if (blob[0] == BLOB_PLAIN && s_have_efuse) {
-        ESP_LOGW(TAG, "rewrapping the stored key under the eFuse HMAC block");
-        if (sc_key_store(scbk) != ESP_OK) {
-            ESP_LOGE(TAG, "rewrap failed; the key remains stored in the clear");
+        ESP_LOGW(TAG, "rewrapping the stored %s under the eFuse HMAC block",
+                 slot->name);
+        if (slot_store(slot, key) != ESP_OK) {
+            ESP_LOGE(TAG, "rewrap failed; the %s remains stored in the clear",
+                     slot->name);
         }
     }
 
@@ -317,31 +355,62 @@ sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN])
     return SC_KEY_LOADED;
 }
 
-esp_err_t sc_key_store(const uint8_t scbk[SC_KEY_LEN])
+static esp_err_t slot_store(const slot_t *slot, const uint8_t *key)
 {
-    if (!s_ready || scbk == NULL) {
+    if (!s_ready || key == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t blob[BLOB_EFUSE_LEN];
+    uint8_t blob[BLOB_EFUSE_LEN(KEY_MAX)];
     size_t  len = 0;
 
-    esp_err_t err = blob_seal(scbk, blob, &len);
+    esp_err_t err = blob_seal(key, slot->len, blob, &len);
     if (err == ESP_OK) {
-        err = write_blob(blob, len);
+        err = write_blob(slot, blob, len);
     }
     memset(blob, 0, sizeof(blob));
 
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "storing the new SCBK failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "storing the new %s failed: %s", slot->name,
+                 esp_err_to_name(err));
         return err;
     }
     /* Deliberately says nothing about the key itself, not even its length —
      * a log line is the easiest place in a system for a secret to end up. */
-    ESP_LOGI(TAG, "new SCBK stored (%s)",
+    ESP_LOGI(TAG, "new %s stored (%s)", slot->name,
              s_have_efuse ? "eFuse-wrapped" : "IN THE CLEAR");
     return ESP_OK;
 }
+
+/* Remove one key. Not committed here: sc_key_erase() commits once, after
+ * every slot is gone, so a reset cannot stop halfway with one key erased. */
+static esp_err_t slot_erase(nvs_handle_t h, const slot_t *slot)
+{
+    const esp_err_t err = nvs_erase_key(h, slot->nvs_key);
+    return (err == ESP_ERR_NVS_NOT_FOUND) ? ESP_OK : err;
+}
+
+sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN])
+{
+    return slot_load(&SLOT_SC1, scbk);
+}
+
+esp_err_t sc_key_store(const uint8_t scbk[SC_KEY_LEN])
+{
+    return slot_store(&SLOT_SC1, scbk);
+}
+
+#if CONFIG_OPENREADER_SC2
+sc_key_state_t sc_key_load_sc2(uint8_t scbk[SC2_KEY_LEN])
+{
+    return slot_load(&SLOT_SC2, scbk);
+}
+
+esp_err_t sc_key_store_sc2(const uint8_t scbk[SC2_KEY_LEN])
+{
+    return slot_store(&SLOT_SC2, scbk);
+}
+#endif
 
 esp_err_t sc_key_erase(void)
 {
@@ -358,10 +427,14 @@ esp_err_t sc_key_erase(void)
         return err;
     }
 
-    err = nvs_erase_key(h, NVS_KEY_SCBK);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = ESP_OK;
+    err = slot_erase(h, &SLOT_SC1);
+#if CONFIG_OPENREADER_SC2
+    /* The paired key goes with the SC1 one. A reset that left a working SC2
+     * key behind would leave the reader trusting the old ACU over SC2. */
+    if (err == ESP_OK) {
+        err = slot_erase(h, &SLOT_SC2);
     }
+#endif
     if (err == ESP_OK) {
         err = nvs_commit(h);
     }
@@ -370,6 +443,9 @@ esp_err_t sc_key_erase(void)
     if (err == ESP_OK) {
         ESP_LOGW(TAG, "SCBK erased — this reader is back in install mode "
                       "and will answer a handshake on SCBK-D");
+#if CONFIG_OPENREADER_SC2
+        ESP_LOGW(TAG, "SC2 SCBK erased — this reader will pair again");
+#endif
     }
     return err;
 }

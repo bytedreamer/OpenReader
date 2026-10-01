@@ -133,6 +133,26 @@ menu "OpenReader"
             what signing actually uses. Check the high-water mark after a
             pairing and trim to fit.
 
+    config OPENREADER_SC2_DENY_REPAIR
+        bool "Refuse to pair again once paired"
+        depends on OPENREADER_SC2
+        default y
+        help
+            The first ACU to pair with a fresh reader keys it. With this on,
+            later pairing attempts are refused, so no other device on the
+            bus can replace that key. This is SC2's equivalent of SC1
+            refusing SCBK-D once keyed.
+
+            The library defaults to allowing re-pairing, on the grounds that
+            anything able to pair already holds a certificate the reader
+            trusts. That reasoning doesn't hold here: osdp-pair-provision
+            only issues credentials under the OSDP.Net demo CA, whose
+            private key anyone can derive.
+
+            The key-reset button clears the paired key and opens pairing
+            again. Turn this off only on a bench where re-pairing without
+            pressing it is worth more than the protection.
+
     config OPENREADER_DISPLAY
         bool "Show the reader face on the onboard LCD"
         default y

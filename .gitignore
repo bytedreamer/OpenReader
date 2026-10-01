@@ -6,3 +6,4 @@ dependencies.lock
 .vscode/
 build-*/
 sdkconfig.bak
+main/pair_credentials.h

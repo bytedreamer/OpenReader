@@ -6,6 +6,9 @@
 #include "tamper.h"
 #include "sc_key.h"
 #include "key_reset.h"
+#if CONFIG_OPENREADER_SC2
+#include "sc2.h"
+#endif
 
 #include "osdp/osdp_pd.h"
 #include "osdp/osdp_commands.h"
@@ -473,6 +476,15 @@ static void bind_sc(void)
     /* The library copied what it needs; this stack frame should not still be
      * holding the SCBK when the next call reuses it. */
     memset(scbk, 0, sizeof(scbk));
+
+#if CONFIG_OPENREADER_SC2
+    /* SC2 has its own key and its own policy for getting one, and it runs
+     * whatever state SC1 is in: the ACU chooses which channel to open. It
+     * shares the cUID, which is the PD's identity, not SC1's. */
+    _Static_assert(OSDP_SC2_CUID_LEN == OSDP_SC_CUID_LEN,
+                   "SC1 and SC2 no longer agree on the cUID length");
+    sc2_bind(&s_pd, cuid);
+#endif
 }
 
 /* Put the PD's in-RAM SCBK back in step with what is actually stored.
@@ -1050,6 +1062,13 @@ static void announce_tamper(void)
  * session from one wrapped under a key printed in the specification. */
 static display_sc_t secure_state(void)
 {
+#if CONFIG_OPENREADER_SC2
+    /* An SC2 session is always on a paired key, never a published one, so
+     * it is secure whatever SC1's key state is. */
+    if (osdp_pd_sc2_established(&s_pd)) {
+        return DISPLAY_SC_ACTIVE;
+    }
+#endif
     const bool up = osdp_pd_sc_established(&s_pd);
 
     switch (s_sc_mode) {

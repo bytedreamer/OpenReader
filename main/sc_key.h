@@ -79,6 +79,7 @@
 #define SC_KEY_H
 
 #include "esp_err.h"
+#include "sdkconfig.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -87,6 +88,10 @@
  * everything that includes it. A static assertion in sc_key.c checks the two
  * have not drifted. */
 #define SC_KEY_LEN 16U
+
+/* SC2's SCBK is AES-256, and pairing is what produces it. Checked against
+ * OSDP_SC2_KEY_LEN the same way. */
+#define SC2_KEY_LEN 32U
 
 typedef enum {
     SC_KEY_NONE = 0,    /* nothing stored — install mode                   */
@@ -124,7 +129,19 @@ sc_key_state_t sc_key_load(uint8_t scbk[SC_KEY_LEN]);
  * working until its next power cycle and unreachable after it. */
 esp_err_t sc_key_store(const uint8_t scbk[SC_KEY_LEN]);
 
-/* Erase the operational key, returning the reader to install mode.
+#if CONFIG_OPENREADER_SC2
+/* The SC2 key pairing derived, under the same protection and with the same
+ * three states as the SC1 key: SC_KEY_NONE means never paired. It sits in a
+ * slot of its own, so pairing never disturbs the SC1 key or the reverse. */
+sc_key_state_t sc_key_load_sc2(uint8_t scbk[SC2_KEY_LEN]);
+
+/* Store the key pairing derived. Commits before returning, for the same
+ * reason as sc_key_store(): pairing is about to tell the ACU it succeeded. */
+esp_err_t sc_key_store_sc2(const uint8_t scbk[SC2_KEY_LEN]);
+#endif
+
+/* Erase the operational key, returning the reader to install mode. With
+ * SC2 built in it erases the paired key too, in the same commit.
  *
  * The only caller should be the physical reset in key_reset.h. There is
  * deliberately no command, no console verb and no remote path to this: a

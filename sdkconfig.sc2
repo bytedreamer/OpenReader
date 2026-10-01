@@ -5,6 +5,10 @@
 #   $env:OSDP_EMBEDDED_DIR = "..\OSDP-Embedded-sc2"
 #   idf.py -B build-sc2 -D SDKCONFIG=build-sc2/sdkconfig `
 #          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sc2" build
+#
+# It also needs main/pair_credentials.h, this reader's pairing credential,
+# which is never checked in. The build stops and prints the command that
+# generates it if the file is missing.
 CONFIG_OPENREADER_SC2=y
 
 # wolfCrypt's ML-KEM (all three sizes; pairing uses 768). ML-DSA has no
