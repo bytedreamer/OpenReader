@@ -81,6 +81,24 @@ esp_err_t rs485_init(int baud)
         return err;
     }
 
+    /* Hand received bytes to the OSDP code promptly. By default the driver
+     * holds them until 120 have collected in the RX FIFO, or until the line
+     * has been idle for 10 character-times, so a frame longer than the FIFO
+     * reaches osdp_pd_tick() in clumps with a gap of tens of milliseconds
+     * between them. The library's inter-character timeout treats a gap like
+     * that as a stalled frame. Every 8 bytes or 2 idle character-times
+     * keeps the worst gap to about 8 character-times: 8 ms at 9600 baud,
+     * 2 ms at 38400. That is one interrupt per 8 bytes at most, which the
+     * C6 does not notice at these rates. */
+    err = uart_set_rx_full_threshold(BOARD_RS485_UART, 8);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = uart_set_rx_timeout(BOARD_RS485_UART, 2);
+    if (err != ESP_OK) {
+        return err;
+    }
+
     ESP_LOGI(TAG, "UART%d up at %d baud (TX=%d RX=%d)",
              BOARD_RS485_UART, baud, BOARD_RS485_TX, BOARD_RS485_RX);
     return ESP_OK;
