@@ -33,4 +33,11 @@
  * entropy source. */
 void sc2_bind(osdp_pd_t *pd, const uint8_t cuid[OSDP_SC2_CUID_LEN]);
 
+/* Put the PD's in-RAM SC2 key back in step with flash, after an SC2
+ * osdp_KEYSET this reader refused. The library rotates its RAM copy even
+ * when the handler NAKs, so a refusal leaves RAM holding a key the reader
+ * won't have after a power cycle. Call from the OSDP task, on the tick after
+ * the refusal; osdp_reader.c does. */
+void sc2_reconcile(osdp_pd_t *pd);
+
 #endif /* SC2_H */

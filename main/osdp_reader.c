@@ -129,6 +129,11 @@ static sc_mode_t s_sc_mode = SC_MODE_OFF;
  * reconciliation one tick later is a better trade than holding a second copy
  * of the key in this module purely to be able to put it back synchronously. */
 static bool s_keyset_diverged;
+
+#if CONFIG_OPENREADER_SC2
+/* The same, for an SC2 osdp_KEYSET. Cleared by sc2_reconcile(). */
+static bool s_sc2_keyset_diverged;
+#endif
 #endif
 
 /* ---- Identity ----------------------------------------------------------- */
@@ -646,7 +651,44 @@ static osdp_status_t command_handler(void *user, uint8_t code,
          * never persists a key the library is then going to reject. */
         {
             osdp_keyset_cmd_t ks;
-            if (osdp_keyset_decode(payload, len, &ks) != OSDP_OK ||
+            const bool decoded = osdp_keyset_decode(payload, len, &ks) == OSDP_OK;
+
+#if CONFIG_OPENREADER_SC2
+            /* Over SC2 the library rotates the SC2 key, and only accepts
+             * KeyType 0x02 with a 32-byte AES-256 key; over SC1 it rotates
+             * the SC1 key and only accepts KeyType 0x01. The handler isn't
+             * told the channel, but a command can only arrive over SC2
+             * while an SC2 session is up. Each key goes to its own slot, and
+             * one that doesn't match the session it arrived on is refused
+             * before anything is stored. */
+            const bool over_sc2 = osdp_pd_sc2_established(&s_pd);
+            if (over_sc2) {
+                if (!decoded ||
+                    ks.key_type   != OSDP_KEYSET_KEY_TYPE_SCBK_AES256 ||
+                    ks.key_length != OSDP_SC2_KEY_LEN ||
+                    ks.key_data   == NULL) {
+                    ESP_LOGW(TAG, "osdp_KEYSET over SC2 rejected: not a "
+                                  "32-byte AES-256 SCBK");
+                    return OSDP_ERR_INVALID_ARG;
+                }
+                if (sc_key_store_sc2(ks.key_data) != ESP_OK) {
+                    /* As for SC1 below: refuse rather than ACK a key that
+                     * won't survive a reboot, and undo the library's
+                     * rotation of its RAM copy on the next tick. */
+                    s_sc2_keyset_diverged = true;
+                    return OSDP_ERR_INVALID_ARG;
+                }
+                ESP_LOGI(TAG, "osdp_KEYSET over SC2 applied and stored; the "
+                              "new key takes effect at the next SC2 "
+                              "handshake");
+                reply->code        = OSDP_REPLY_ACK;
+                reply->payload     = NULL;
+                reply->payload_len = 0;
+                return OSDP_OK;
+            }
+#endif
+
+            if (!decoded ||
                 ks.key_type   != OSDP_KEYSET_KEY_TYPE_SCBK ||
                 ks.key_length != OSDP_SC_KEY_LEN ||
                 ks.key_data   == NULL) {
@@ -1186,6 +1228,12 @@ void osdp_reader_run(void)
         if (s_keyset_diverged) {
             reconcile_scbk();
         }
+#if CONFIG_OPENREADER_SC2
+        if (s_sc2_keyset_diverged) {
+            sc2_reconcile(&s_pd);
+            s_sc2_keyset_diverged = false;
+        }
+#endif
 #endif
 
 #if CONFIG_OPENREADER_KEY_RESET

@@ -68,6 +68,25 @@ static bool on_paired(void                   *user,
     return true;
 }
 
+void sc2_reconcile(osdp_pd_t *pd)
+{
+    uint8_t scbk[SC2_KEY_LEN];
+    if (sc_key_load_sc2(scbk) == SC_KEY_LOADED) {
+        osdp_pd_set_sc2_scbk(pd, scbk);
+        ESP_LOGW(TAG, "restored the stored SC2 key after a refused "
+                      "osdp_KEYSET");
+    } else {
+        /* Nothing usable is stored, so the PD must not hold a key it would
+         * handshake on. There is no setter for clearing it, so this writes
+         * the public struct directly, as osdp_reader.c does for SC1. */
+        pd->sc2.scbk_set = false;
+        memset(pd->sc2.scbk, 0, sizeof(pd->sc2.scbk));
+        ESP_LOGW(TAG, "cleared the rotated SC2 key after a refused "
+                      "osdp_KEYSET; nothing is stored");
+    }
+    memset(scbk, 0, sizeof(scbk));
+}
+
 void sc2_bind(osdp_pd_t *pd, const uint8_t cuid[OSDP_SC2_CUID_LEN])
 {
     const osdp_sc2_crypto_t *link = sc2_crypto_link();
