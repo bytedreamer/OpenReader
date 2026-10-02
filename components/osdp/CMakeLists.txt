@@ -55,6 +55,11 @@ idf_component_register(
 # never answered. This is the library's switch for batching transports,
 # raising the timeout to 150 ms. PUBLIC because it selects a constant in
 # osdp_pd.h, which every includer must agree on.
+#
+# main/rs485.c now asks the driver for bytes every 8, which keeps the gap
+# under the spec's 20 ms on its own. This stays until long frames have been
+# checked on the bench with that alone; then it can come out and restore the
+# spec's fast abort of a frame cut short.
 target_compile_definitions(${COMPONENT_LIB} PUBLIC OSDP_BUFFERED_TRANSPORT)
 
 # The library is freestanding C11 and warning-clean under -Wall -Wextra
