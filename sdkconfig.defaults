@@ -29,6 +29,12 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
+# --- RS-485 line rate ---------------------------------------------------------
+# 38400 rather than the spec's 9600 bring-up default. SC2 pairing moves about
+# 5 KB each way in 128-byte fragments, which at 9600 is several seconds per
+# message. The ACU must be set to match.
+CONFIG_OPENREADER_RS485_BAUD=38400
+
 # --- RS-485 pins ------------------------------------------------------------
 # GP18/19 produced no traffic in either direction; trying GP0/GP1 to rule the
 # original pair in or out. Both are plain GPIOs on this part (GPIO0 is not a
