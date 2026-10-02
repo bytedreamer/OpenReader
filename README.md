@@ -476,6 +476,12 @@ The OSDP-Embedded repo ships two tools that make this much less painful:
 - `osdp-mcp` — the same thing driven by an AI agent, which can script replies,
   inject NAKs, force session loss and dump the decoded wire history.
 
+For a second, independent ACU, use [OSDP.Net](https://github.com/Z-bit-Systems-LLC/OSDP.Net)
+from Z-bit Systems. It's a .NET control-panel library that also ships a
+ready-built ACU Console for Windows, Linux and macOS. Because it shares no code
+with OSDP-Embedded, it catches interop bugs that testing the reader against
+its own library's ACU can't.
+
 ## Licence
 
 The OSDP-Embedded library is GPL-3.0-or-later; see its `LICENSING` file for
