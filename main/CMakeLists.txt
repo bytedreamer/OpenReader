@@ -66,4 +66,5 @@ idf_component_register(
              esp_hw_support      # esp_hmac_calculate: derives the wrapping
                                  # key without the eFuse ever being readable
              bootloader_support  # bootloader_random_enable — see pkoc.c
-             espressif__led_strip)
+             espressif__led_strip
+             wolfssl)            # SC2 and pairing; empty without SC2

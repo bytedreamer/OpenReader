@@ -1,8 +1,0 @@
-## wolfCrypt supplies ML-KEM-768, ML-DSA-44 and AES-256-GCM for SC2 and PQC
-## pairing, through OSDP-Embedded's ports/wolfcrypt. Only the SC2 build
-## needs it, so the others never download it.
-dependencies:
-  wolfssl/wolfssl:
-    version: "^5.8.2"
-    rules:
-      - if: "$CONFIG{OPENREADER_SC2} == True"

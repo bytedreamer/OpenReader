@@ -3,34 +3,3 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(openreader)
-
-# The managed wolfSSL component configures itself from its own bundled
-# user_settings.h, which has a menuconfig switch for ML-KEM but none for
-# ML-DSA. Editing that copy wouldn't survive a re-download, so ML-DSA is
-# switched on here instead. PUBLIC because the definitions change wolfCrypt's
-# struct layouts: every component that includes its headers (OSDP-Embedded's
-# ports/wolfcrypt) must see the same set.
-if(CONFIG_OPENREADER_SC2)
-    idf_component_get_property(wolfssl_lib wolfssl__wolfssl COMPONENT_LIB)
-    target_compile_definitions(${wolfssl_lib} PUBLIC
-        # The component defines these two for its own sources only. Without
-        # them, any other component that includes wolfSSL's headers skips
-        # user_settings.h, sees a different configuration from the one
-        # wolfSSL was compiled with, and can get its struct layouts wrong.
-        WOLFSSL_USER_SETTINGS
-        WOLFSSL_ESPIDF
-        HAVE_DILITHIUM
-        WOLFSSL_WC_DILITHIUM
-        # Pairing uses ML-DSA-44 only.
-        WOLFSSL_NO_ML_DSA_65
-        WOLFSSL_NO_ML_DSA_87
-        # Trade speed for stack. Signing happens once, at pairing, and runs
-        # on the OSDP task, so its stack size is what limits us.
-        WOLFSSL_DILITHIUM_SIGN_SMALL_MEM
-        WOLFSSL_DILITHIUM_VERIFY_SMALL_MEM
-        WOLFSSL_DILITHIUM_MAKE_KEY_SMALL_MEM
-        # The library's SC1 wolfCrypt port (osdp_sc_wolfcrypt.c) sits in the
-        # same ports/wolfcrypt directory, so it gets compiled too, and it
-        # refuses to build without ECB mode.
-        HAVE_AES_ECB)
-endif()

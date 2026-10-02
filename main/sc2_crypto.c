@@ -3,11 +3,12 @@
 #include "osdp_pair_wolfcrypt.h"   /* OSDP-Embedded ports/wolfcrypt */
 #include "osdp_sc2_wolfcrypt.h"
 
-/* Ports from 932e80c on define OSDP_SC2_WOLFCRYPT_HAS_KMAC, and when it is 1
- * the port binds KMAC256 from wolfSSL (5.9.4 and later, with WOLFSSL_KMAC).
- * Earlier ports don't define it at all, which #if reads as 0. */
+/* KMAC256 comes from wolfCrypt too, through the port. That needs wolfSSL
+ * 5.9.4 or later with WOLFSSL_KMAC (see components/wolfssl), and an
+ * OSDP-Embedded new enough to bind it (932e80c). An older port doesn't
+ * define the flag at all, which #if reads as 0. */
 #if !OSDP_SC2_WOLFCRYPT_HAS_KMAC
-#include "kmac.h"                  /* OSDP-Embedded vendor/tiny-kmac */
+#error "The wolfCrypt SC2 port has no KMAC256: wolfSSL must be 5.9.4+ with WOLFSSL_KMAC, and OSDP-Embedded at 932e80c or later"
 #endif
 
 #include "esp_log.h"
@@ -52,25 +53,6 @@ static osdp_status_t pair_rand(void *user, uint8_t *out, size_t len)
     return OSDP_OK;
 }
 
-/* ---- KMAC256 -------------------------------------------------------------
- *
- * wolfSSL only gained KMAC in 5.9.4, and the ESP Component Registry stops at
- * 5.8.2, so on that build SC2's key derivation uses the library's vendored
- * tiny-kmac. Its header calls it test-only. That is acceptable on a bench,
- * and it has to be replaced before SC2 ships. */
-
-#if !OSDP_SC2_WOLFCRYPT_HAS_KMAC
-static osdp_status_t sc2_kmac256(void          *user,
-                                 const uint8_t *key,  size_t key_len,
-                                 const uint8_t *data, size_t data_len,
-                                 uint8_t       *out,  size_t out_len)
-{
-    (void)user;
-    tiny_kmac256(key, key_len, data, data_len, out, out_len);
-    return OSDP_OK;
-}
-#endif
-
 /* ---- Vtables -------------------------------------------------------------- */
 
 const osdp_sc2_crypto_t *sc2_crypto_link(void)
@@ -80,16 +62,13 @@ const osdp_sc2_crypto_t *sc2_crypto_link(void)
         return &s_sc2;
     }
 
-    /* The port fills in the AES-256 entries, `user`, and KMAC256 when its
-     * wolfSSL has it. Randomness is ours, and so is KMAC256 otherwise. Ours
-     * ignore `user`, so the port's context pointer there is left alone. */
+    /* The port fills in AES-256-GCM, the AES-256 block, KMAC256 and `user`.
+     * Randomness is ours, and ignores `user`, so the port's context pointer
+     * there is left alone. */
     if (osdp_sc2_wolfcrypt_aes256(&s_sc2_ctx, &s_sc2) != OSDP_OK) {
         ESP_LOGE(TAG, "wolfCrypt AES-256 setup failed");
         return NULL;
     }
-#if !OSDP_SC2_WOLFCRYPT_HAS_KMAC
-    s_sc2.kmac256    = sc2_kmac256;
-#endif
     s_sc2.rand_bytes = sc2_rand;
 
     ready = true;

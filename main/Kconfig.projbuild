@@ -107,10 +107,10 @@ menu "OpenReader"
             not from osdp_KEYSET. SC1 stays compiled in alongside it.
 
             The pairing and SC2 crypto come from wolfCrypt, through
-            OSDP-Embedded's ports/wolfcrypt binding. KMAC256 comes from the
-            library's vendored tiny-kmac, because wolfCrypt has no KMAC.
-            Turning this on pulls wolfssl/wolfssl from the ESP Component
-            Registry. That is the only build that does.
+            OSDP-Embedded's ports/wolfcrypt binding. That needs a wolfSSL
+            checkout at v5.9.4-stable or later, the first release with
+            KMAC256; components/wolfssl says where it looks. No other build
+            needs wolfSSL.
 
             Experimental: SC2 and pairing exist only on OSDP-Embedded's
             feature/osdp-sc2 branch, so point OSDP_EMBEDDED_DIR at a
@@ -129,12 +129,13 @@ menu "OpenReader"
             Pairing is a one-off, but the stack is allocated for the life
             of the task.
 
-            32 KB leaves a wide margin. Measured on x86-64 with this
-            build's wolfCrypt settings, the PD's heaviest pairing step
+            32 KB leaves a wide margin. Measured on x86-64 with wolfSSL
+            5.8.2 and these ML-DSA settings, the PD's heaviest pairing step
             (Message 1: verify the ACU's certificate, ML-KEM encapsulate,
             ML-DSA sign) peaks at about 8 KB of stack and 16 KB of heap.
-            wolfCrypt keeps ML-DSA's large buffers on the heap. Frames on
-            the C6 differ, so after a real pairing read the log line that
+            wolfCrypt keeps ML-DSA's large buffers on the heap. The build
+            now uses 5.9.4, whose ML-DSA code differs, and frames on the C6
+            differ too, so after a real pairing read the log line that
             reports how much stack was never used, and trim to fit.
 
     config OPENREADER_SC2_DENY_REPAIR

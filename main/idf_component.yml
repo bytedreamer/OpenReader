@@ -3,11 +3,3 @@ dependencies:
     version: ">=5.1"
   espressif/led_strip:
     version: "^2.5.3"
-  # sc2_crypto.c includes wolfSSL's headers through the wolfCrypt port, so
-  # main needs wolfSSL as a direct dependency. A REQUIRES in CMakeLists.txt
-  # can't do this: ESP-IDF works out REQUIRES before Kconfig values exist,
-  # so it can't depend on OPENREADER_SC2. The component manager can.
-  wolfssl/wolfssl:
-    version: "^5.8.2"
-    rules:
-      - if: "$CONFIG{OPENREADER_SC2} == True"

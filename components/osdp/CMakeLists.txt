@@ -41,12 +41,10 @@ file(GLOB OSDP_SRCS
     "${OSDP_DIR}/pd/src/*.c")
 
 set(OSDP_INCLUDE_DIRS "${OSDP_DIR}/core/include" "${OSDP_DIR}/pd/include")
-set(OSDP_REQUIRES)
 
-# SC2 and pairing need crypto the core leaves to the application: wolfCrypt
-# through the library's ports/wolfcrypt binding, and tiny-kmac for KMAC256,
-# which wolfCrypt doesn't provide. Both are compiled here, not in main,
-# because they ship with the library. The port directory is globbed, so
+# SC2 and pairing need crypto the core leaves to the application. It comes
+# from the library's ports/wolfcrypt binding, compiled here rather than in
+# main because it ships with the library. The port directory is globbed, so
 # files added to it upstream are picked up without editing this list.
 if(CONFIG_OPENREADER_SC2)
     if(NOT EXISTS "${OSDP_DIR}/core/include/osdp/osdp_sc2_crypto.h")
@@ -54,8 +52,6 @@ if(CONFIG_OPENREADER_SC2)
             "OPENREADER_SC2 is on, but '${OSDP_DIR}' has no SC2. Point "
             "OSDP_EMBEDDED_DIR at a checkout of feature/osdp-sc2.")
     endif()
-    list(APPEND OSDP_SRCS "${OSDP_DIR}/vendor/tiny-kmac/kmac.c")
-    list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/vendor/tiny-kmac")
     if(NOT EXISTS "${OSDP_DIR}/ports/wolfcrypt/osdp_pair_wolfcrypt.h")
         message(FATAL_ERROR
             "'${OSDP_DIR}' has no wolfCrypt SC2/pairing port "
@@ -64,7 +60,6 @@ if(CONFIG_OPENREADER_SC2)
     file(GLOB OSDP_WOLFCRYPT_SRCS "${OSDP_DIR}/ports/wolfcrypt/*.c")
     list(APPEND OSDP_SRCS ${OSDP_WOLFCRYPT_SRCS})
     list(APPEND OSDP_INCLUDE_DIRS "${OSDP_DIR}/ports/wolfcrypt")
-    list(APPEND OSDP_REQUIRES wolfssl__wolfssl)
 endif()
 
 idf_component_register(
@@ -72,7 +67,10 @@ idf_component_register(
     INCLUDE_DIRS      ${OSDP_INCLUDE_DIRS}
     PRIV_INCLUDE_DIRS "${OSDP_DIR}/core/src"
                       "${OSDP_DIR}/pd/src"
-    REQUIRES          ${OSDP_REQUIRES})
+    # Unconditional, because IDF works out REQUIRES before Kconfig values
+    # exist. Without SC2 the wolfssl component registers empty, so this
+    # costs nothing there.
+    REQUIRES          wolfssl)
 
 # The library is freestanding C11 and warning-clean under -Wall -Wextra
 # -Wconversion upstream, but IDF's warning set differs slightly by version.
