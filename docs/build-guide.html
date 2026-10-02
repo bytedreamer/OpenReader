@@ -807,7 +807,7 @@ pre code { background: none; padding: 0; font-size: inherit; }
 
       <div class="callout">
         <span class="label">If you would rather use a part than two resistors</span>
-        <p>A 74AHCT1G125 or 74LVC1G17 running from 3.3 V works and is faster, and a TXS0108E breakout does the job with more pins than you need. All of them are more parts for the same result at 9600 baud.</p>
+        <p>A 74AHCT1G125 or 74LVC1G17 running from 3.3 V works and is faster, and a TXS0108E breakout does the job with more pins than you need. All of them are more parts for the same result at OSDP's baud rates.</p>
       </div>
     </div>
   </div>
@@ -999,7 +999,7 @@ idf.py build flash monitor</code></pre>
         <p>The RGB LED should breathe blue — the firmware saying <em>no ACU is polling me</em>, which is correct, because none is.</p>
         <pre><code><span class="log-ok">I</span> (312) main: OpenReader starting
 <span class="log-ok">I</span> (318) led: WS2812 on GPIO8
-<span class="log-ok">I</span> (330) rs485: UART1 up at 9600 baud (TX=0 RX=1)</code></pre>
+<span class="log-ok">I</span> (330) rs485: UART1 up at 38400 baud (TX=0 RX=1)</code></pre>
       </div>
 
       <div class="check">
@@ -1040,7 +1040,7 @@ ESP_LOGI("probe", "got %d bytes back", n);</code></pre>
 
       <div class="check">
         <h3><span class="n">5.4</span>The panel polls you</h3>
-        <p>Connect A, B and ground. Set the panel to poll address 0 at 9600 baud — or change the reader to match, under <code>menuconfig → OpenReader → OSDP PD address</code>.</p>
+        <p>Connect A, B and ground. Set the panel to poll address 0 at 38400 baud — or change the reader to match, under <code>menuconfig → OpenReader → OSDP PD address</code> and <code>RS-485 baud rate</code>.</p>
         <p>The RGB LED stops breathing blue the moment the first poll is answered:</p>
         <pre><code><span class="log-ok">I</span> (18420) osdp: link online</code></pre>
         <p>No panel yet? The OSDP-Embedded repo ships <code>osdp-acu-mock</code>, which drives a PD from a PC serial port — the fastest way to test a reader without a panel on the desk.</p>

@@ -181,7 +181,7 @@ demanding; 10 cm of jumper wire is fine.
 **If you would rather use a part than two resistors:** a 74AHCT1G125 or
 74LVC1G17 running from 3.3 V works and is faster, and a TXS0108E breakout
 does the job with more pins than you need. All of these are more parts for
-the same result at 9600 baud.
+the same result at OSDP's baud rates.
 
 ---
 
@@ -502,7 +502,7 @@ ACU is polling me", which is correct, because none is. In the log:
 ```
 I (312) main: OpenReader starting
 I (318) led: WS2812 on GPIO8
-I (330) rs485: UART1 up at 9600 baud (TX=0 RX=1)
+I (330) rs485: UART1 up at 38400 baud (TX=0 RX=1)
 ```
 
 ### 8.2 The RC522 answers
@@ -615,8 +615,8 @@ command the ACU sends and your reader will never answer a poll.
 ### 8.4 The ACU polls you
 
 Connect A, B and ground to your panel. Set the panel to poll address 0 at
-9600 baud — or change the reader to match, under
-`menuconfig → OpenReader → OSDP PD address`.
+38400 baud — or change the reader to match, under
+`menuconfig → OpenReader → OSDP PD address` and `RS-485 baud rate`.
 
 The RGB LED stops breathing blue the moment the first poll is answered, and
 the log says:

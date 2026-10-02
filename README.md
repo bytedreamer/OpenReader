@@ -38,13 +38,15 @@ Needs [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32c6/ge
 
 ```bash
 git clone <this repo>
-# Two libraries are expected as sibling directories by default:
+# Libraries are expected as sibling directories by default:
 #   <parent>/OSDP-Embedded    the PD protocol stack
 #   <parent>/AsymCred         PKOC — only needed if PKOC is built
+#   <parent>/wolfssl          SC2 only — see "Secure Channel 2" below
 #   <parent>/OpenReader
 # Point elsewhere with:
 #   export OSDP_EMBEDDED_DIR=/path/to/OSDP-Embedded
 #   export ASYMCRED_DIR=/path/to/AsymCred
+#   export WOLFSSL_ROOT=/path/to/wolfssl
 
 cd OpenReader
 idf.py set-target esp32c6
@@ -59,11 +61,14 @@ Everything tunable lives under `OpenReader` in `menuconfig`:
 | Option | Default | |
 | ------ | ------- | - |
 | OSDP PD address | 0 | Must match what the ACU polls (0x00–0x7E) |
-| RS-485 baud rate | 9600 | The spec's mandatory default; must match the ACU |
+| RS-485 baud rate | 38400 | Set in `sdkconfig.defaults`; the Kconfig default is the spec's 9600. Must match the ACU |
 | OSDP Secure Channel | on | Turn off only for bring-up against a panel that cannot do SC |
 | Start in install mode | on | Answer SCBK-D until an `osdp_KEYSET` arrives. See below |
 | Physical key reset | on | Hold BOOT to erase the key and return to install mode |
 | Key reset hold time | 10000 ms | How long the button must be held, continuously |
+| OSDP Secure Channel 2 with PQC pairing | off | Experimental. See [Secure Channel 2](#secure-channel-2-and-pqc-pairing-experimental) |
+| OSDP task stack size | 32768 B | SC2 only. Pairing's ML-DSA signing runs on this task |
+| Refuse to pair again once paired | on | SC2 only. The key reset reopens pairing |
 | Reader face on the LCD | on | The link and card panels; owns hardware SPI2 when built |
 | Blank the screen when idle | on | Backlight off and the panel asleep once the face stops changing |
 | Blank the screen after | 30000 ms | Measured from the last change to the face, not the last card read |
@@ -326,7 +331,9 @@ the key exists to close. So the way back is physical:
 
 **Hold the BOOT button for 10 seconds while the reader is running.** The LCD
 counts down, the LED goes amber, and at zero the stored key is erased and the
-reader restarts into install mode. Releasing at any point cancels it.
+reader restarts into install mode. Releasing at any point cancels it. On an
+SC2 build the paired SC2 key is erased in the same step, so the reader can be
+paired again.
 
 This does not disturb what BOOT already does. The ROM samples that pin at
 reset; the firmware reads it long afterwards. Holding BOOT *across* a reset
@@ -348,7 +355,7 @@ be recovered by re-flashing.
 | `INSTALL SCBK-D` | Never keyed, waiting for an `osdp_KEYSET` |
 | `INSTALL OPEN KEY` | Session up — under the key from the specification |
 | `NO SESSION` | Keyed, and the ACU has not established a session. Usually a key mismatch |
-| `SECURE` | Keyed, session established. The only green one |
+| `SECURE` | Keyed, session established, or an SC2 session is up. The only green one |
 | `KEY FAULT` | A key is stored and will not come back. See below |
 
 `KEY FAULT` means the key store is damaged, or the flash was moved to a
@@ -357,6 +364,108 @@ different chip than the eFuse that wrapped it. The reader then refuses
 back to install mode whenever its key store looked damaged would hand anyone
 who can corrupt flash a downgrade to a published key. Hold BOOT to return it
 to install mode deliberately.
+
+## Secure Channel 2 and PQC pairing (experimental)
+
+On the `experiment/osdp-sc2` branch, with `CONFIG_OPENREADER_SC2` on, the
+reader also speaks **OSDP Secure Channel 2**: AES-256-GCM on the wire, with
+session keys derived by KMAC256. SC2 runs alongside SC1, and the ACU chooses
+which channel to open.
+
+What changes is where the key comes from. SC1's key arrives in
+`osdp_KEYSET`, over a session that starts on the published SCBK-D. SC2's key
+comes from **pairing**: the reader and the ACU check each other's certificates
+with ML-DSA-44 and agree a key with ML-KEM-768, so the key never crosses the
+wire.
+
+This is experimental. SC2 and pairing exist only on OSDP-Embedded's
+`feature/osdp-sc2` branch, and the credentials below are demonstration
+material.
+
+### Building it
+
+You need three things beyond a normal build:
+
+1. **OSDP-Embedded at `feature/osdp-sc2`**, commit `932e80c` or later. That
+   commit adds the wolfCrypt SC2 and pairing port, with KMAC256. Point
+   `OSDP_EMBEDDED_DIR` at that checkout.
+2. **wolfSSL v5.9.4-stable or later**, as a sibling `wolfssl` directory or
+   wherever `WOLFSSL_ROOT` points. 5.9.4 is the first release with KMAC256.
+   The ESP Component Registry stops at 5.8.2, so this is a git checkout.
+   `components/wolfssl` wraps it, and
+   `components/wolfssl/include/user_settings.h` is the only place it is
+   configured.
+   ```bash
+   git clone --branch v5.9.4-stable --depth 1 https://github.com/wolfSSL/wolfssl.git
+   ```
+3. **This reader's pairing credential**, `main/pair_credentials.h`: its
+   certificate, its ML-DSA-44 key pair, and the CA it trusts. It holds a
+   private key, so git ignores it. Generate one per reader with
+   OSDP-Embedded's host tool, giving each reader its own serial and its own
+   seed:
+   ```bash
+   osdp-pair-provision --out main/pair_credentials.h \
+       --manufacturer "Z-bit Systems" --model OpenReader \
+       --serial 00000001 --device-seed 0x81
+   ```
+   The build stops and prints this command if the file is missing.
+
+Then build in a directory of its own, so the SC2 settings never touch your
+normal `sdkconfig`. `sdkconfig.sc2` turns SC2 on:
+
+```powershell
+$env:OSDP_EMBEDDED_DIR = "..\OSDP-Embedded-sc2"
+idf.py -B build-sc2 -D SDKCONFIG=build-sc2/sdkconfig `
+       -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.sc2" build flash
+```
+
+A build without SC2 needs neither wolfSSL nor the credential, and
+`components/wolfssl` compiles to nothing.
+
+### Pairing and the paired key
+
+- **The first ACU to pair keys the reader.** With
+  `CONFIG_OPENREADER_SC2_DENY_REPAIR` on, the default, any later pairing is
+  refused, so nothing else on the bus can replace the key. Holding the
+  key-reset button clears it and opens pairing again.
+- **The paired key is stored like the SC1 key:** in NVS, wrapped under the
+  eFuse HMAC key if one is burned. The reader saves it before telling the ACU
+  that pairing succeeded, so a pairing the ACU believes in always survives a
+  power cycle.
+- **If the stored key won't load**, SC2 and pairing both stay off rather than
+  pairing over a damaged key store, the same rule SC1 follows. The key reset
+  is the way back.
+- **`osdp_KEYSET` over an SC2 session** rotates the SC2 key: KeyType `0x02`,
+  32 bytes. The new key takes effect at the next SC2 handshake.
+- After each pairing, the console logs how much of the OSDP task's stack was
+  never used and the lowest free heap, for trimming
+  `CONFIG_OPENREADER_OSDP_TASK_STACK`.
+
+### On the bench
+
+Measured with [OSDP-SC2-Benchmark](../OSDP-SC2-Benchmark) against this board
+at 38400 baud, with OSDP.Net as the ACU:
+
+| | Result | Median |
+| - | - | - |
+| Pairing (ML-KEM-768 + ML-DSA-44) | 1/1 | 6.5 s |
+| SC2 session setup | 5/5 | 638 ms |
+| `osdp_KEYSET` over SC2 | 5/5 | 54 ms |
+
+99% of the pairing time is the serial link: about 5 KB each way. The
+reader's own crypto barely registers, even in software, so a faster baud rate
+is what makes pairing quicker.
+
+### Before this goes near a door
+
+- **The credentials are demonstration material.** `osdp-pair-provision`
+  issues them under the OSDP.Net demo CA, whose private key anyone can
+  derive. Until there is a real CA, anyone can pair with an unpaired reader.
+- **wolfCrypt runs in software.** PKOC and the SC1 key store already use the
+  C6's AES and SHA hardware through mbedTLS, and nobody has checked that
+  wolfSSL's hardware port shares it safely.
+- **Stack and heap on the C6 are not yet measured.** The 32 KB stack is sized
+  from x86-64 figures for wolfSSL 5.8.2. Read the log line after a pairing.
 
 ## Testing without a panel
 
